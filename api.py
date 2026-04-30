@@ -14,6 +14,7 @@ from constants import APP_NAME, APP_VERSION, BACKUP_FORMAT, LEGACY_BACKUP_FORMAT
 from paths import accounts_store_path, app_data_dir, auth_store_dir, codex_auth_path, manager_dir
 from storage import delete_account_auth, load_account_auth, load_store, save_store
 from system_ops import open_folder, restart_codex_processes, run_codex_login
+from telegram_notify import build_notification_messages, send_telegram_message
 from time_utils import now_iso, now_ms
 from usage import build_usage_info, get_codex_wham_usage
 
@@ -100,16 +101,30 @@ class Api:
             "hasInitialized",
             "autoRestartCodexOnSwitch",
             "skipSwitchRestartConfirm",
+            "telegramBotToken",
+            "telegramChatId",
+            "notifyOnRefresh",
+            "notifyOnExpirySoon",
+            "notifyOnFiveHourReset",
+            "notifyOnWeeklyReset",
+            "notifyFiveHourThreshold",
+            "notifyWeeklyThreshold",
         }
         store["config"].update({key: value for key, value in (config or {}).items() if key in allowed})
         save_store(store)
         return load_store()
 
+    def test_telegram_notification(self) -> dict[str, Any]:
+        config = load_store().get("config") or {}
+        return send_telegram_message(config, "Codex Keyring: Telegram 通知測試成功")
+
     def refresh_usage(self, account_id: str) -> dict[str, Any]:
         result = get_codex_wham_usage(account_id)
         store = load_store()
+        notification_results = []
         for account in store["accounts"]:
             if account["id"] == account_id:
+                previous_usage = dict(account.get("usageInfo") or {})
                 account["usageInfo"] = (
                     build_usage_info(result)
                     if result["status"] == "ok"
@@ -121,8 +136,11 @@ class Api:
                     }
                 )
                 account["updatedAt"] = now_iso()
+                messages = build_notification_messages(account, previous_usage, result, store.get("config") or {})
+                for message in messages:
+                    notification_results.append(send_telegram_message(store.get("config") or {}, message))
         save_store(store)
-        return {"result": result, "store": load_store()}
+        return {"result": result, "store": load_store(), "notifications": notification_results}
 
     def refresh_all_usage(self) -> dict[str, Any]:
         updated = 0

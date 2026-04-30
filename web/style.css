@@ -277,20 +277,30 @@ button:disabled {
   letter-spacing: 0;
 }
 
-.settings-grid {
+.settings-grid,
+.notification-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
-.settings-grid label {
+.settings-grid label,
+.notification-grid label {
   display: grid;
   gap: 6px;
 }
 
 .settings-grid input,
-.settings-grid select {
+.settings-grid select,
+.notification-grid input,
+.notification-grid select {
   width: 100%;
+}
+
+.inline-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
 }
 
 .storage-list {
@@ -645,6 +655,7 @@ footer {
   }
 
   .settings-grid,
+  .notification-grid,
   .path-row {
     grid-template-columns: 1fr;
   }

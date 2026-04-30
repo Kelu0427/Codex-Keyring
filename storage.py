@@ -16,6 +16,14 @@ def default_config() -> dict[str, Any]:
         "hasInitialized": False,
         "autoRestartCodexOnSwitch": False,
         "skipSwitchRestartConfirm": False,
+        "telegramBotToken": "",
+        "telegramChatId": "",
+        "notifyOnRefresh": False,
+        "notifyOnExpirySoon": False,
+        "notifyOnFiveHourReset": False,
+        "notifyOnWeeklyReset": False,
+        "notifyFiveHourThreshold": "off",
+        "notifyWeeklyThreshold": "off",
     }
 
 

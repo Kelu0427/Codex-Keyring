@@ -89,7 +89,7 @@
                   <option value="66-100">66-100%</option>
                 </select>
               </label>
-              <button id="clearFiltersBtn">清除篩選</button>
+              <button id="clearFiltersBtn" type="button">清除篩選</button>
             </div>
           </section>
 
@@ -101,7 +101,7 @@
           <div class="settings-card">
             <div>
               <h2>設定</h2>
-              <p class="settings-subtitle">調整 Codex CLI、帳號切換和本機資料位置。</p>
+              <p class="settings-subtitle">調整 Codex CLI、帳號切換、Telegram 通知和本機資料位置。</p>
             </div>
 
             <section class="settings-section">
@@ -120,7 +120,7 @@
                   <select id="closeBehaviorInput">
                     <option value="ask">每次詢問</option>
                     <option value="exit">直接結束</option>
-                    <option value="tray">最小化到系統匣</option>
+                    <option value="tray">縮到系統匣</option>
                   </select>
                 </label>
                 <label>
@@ -141,6 +141,63 @@
                   <input id="skipRestartConfirmInput" type="checkbox" />
                   自動重新啟動時略過確認
                 </label>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h3>Telegram 通知</h3>
+              <div class="settings-grid">
+                <label>
+                  Bot Token
+                  <input id="telegramBotTokenInput" type="password" autocomplete="off" />
+                </label>
+                <label>
+                  Chat ID
+                  <input id="telegramChatIdInput" type="text" />
+                </label>
+              </div>
+              <div class="notification-grid">
+                <label class="check">
+                  <input id="notifyOnRefreshInput" type="checkbox" />
+                  每次重整時通知
+                </label>
+                <label class="check">
+                  <input id="notifyOnExpirySoonInput" type="checkbox" />
+                  帳號訂閱快到期時通知
+                </label>
+                <label class="check">
+                  <input id="notifyOnFiveHourResetInput" type="checkbox" />
+                  5 小時用量刷新時通知
+                </label>
+                <label class="check">
+                  <input id="notifyOnWeeklyResetInput" type="checkbox" />
+                  每週用量刷新時通知
+                </label>
+                <label>
+                  5 小時剩餘低於
+                  <select id="notifyFiveHourThresholdInput">
+                    <option value="off">不通知</option>
+                    <option value="10">10%</option>
+                    <option value="20">20%</option>
+                    <option value="30">30%</option>
+                    <option value="40">40%</option>
+                    <option value="50">50%</option>
+                  </select>
+                </label>
+                <label>
+                  每週剩餘低於
+                  <select id="notifyWeeklyThresholdInput">
+                    <option value="off">不通知</option>
+                    <option value="10">10%</option>
+                    <option value="20">20%</option>
+                    <option value="30">30%</option>
+                    <option value="40">40%</option>
+                    <option value="50">50%</option>
+                  </select>
+                </label>
+              </div>
+              <div class="inline-actions">
+                <button id="testTelegramBtn" type="button">測試通知</button>
               </div>
             </section>
 

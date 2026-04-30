@@ -245,9 +245,35 @@ function syncSettingsForm() {
   $("closeBehaviorInput").value = config.closeBehavior || "ask";
   $("autoRestartInput").checked = !!config.autoRestartCodexOnSwitch;
   $("skipRestartConfirmInput").checked = !!config.skipSwitchRestartConfirm;
+  $("telegramBotTokenInput").value = config.telegramBotToken || "";
+  $("telegramChatIdInput").value = config.telegramChatId || "";
+  $("notifyOnRefreshInput").checked = !!config.notifyOnRefresh;
+  $("notifyOnExpirySoonInput").checked = !!config.notifyOnExpirySoon;
+  $("notifyOnFiveHourResetInput").checked = !!config.notifyOnFiveHourReset;
+  $("notifyOnWeeklyResetInput").checked = !!config.notifyOnWeeklyReset;
+  $("notifyFiveHourThresholdInput").value = config.notifyFiveHourThreshold || "off";
+  $("notifyWeeklyThresholdInput").value = config.notifyWeeklyThreshold || "off";
   $("accountsFilePath").value = state.storage.accountsFile || "";
   $("authStorePath").value = state.storage.authStoreDir || "";
   $("currentAuthPath").value = state.storage.currentCodexAuth || "";
+}
+
+function settingsPayload() {
+  return {
+    codexPath: $("codexPathInput").value.trim() || "codex",
+    autoRefreshInterval: Number($("refreshIntervalInput").value || 0),
+    closeBehavior: $("closeBehaviorInput").value,
+    autoRestartCodexOnSwitch: $("autoRestartInput").checked,
+    skipSwitchRestartConfirm: $("skipRestartConfirmInput").checked,
+    telegramBotToken: $("telegramBotTokenInput").value.trim(),
+    telegramChatId: $("telegramChatIdInput").value.trim(),
+    notifyOnRefresh: $("notifyOnRefreshInput").checked,
+    notifyOnExpirySoon: $("notifyOnExpirySoonInput").checked,
+    notifyOnFiveHourReset: $("notifyOnFiveHourResetInput").checked,
+    notifyOnWeeklyReset: $("notifyOnWeeklyResetInput").checked,
+    notifyFiveHourThreshold: $("notifyFiveHourThresholdInput").value,
+    notifyWeeklyThreshold: $("notifyWeeklyThresholdInput").value,
+  };
 }
 
 function scheduleAutoRefresh() {
@@ -328,16 +354,18 @@ document.querySelector(".nav-dropdown__panel")?.addEventListener("click", (event
 });
 
 $("saveSettingsBtn").addEventListener("click", () => guarded("儲存設定", async () => {
-  state.store = await apiCall("update_config", {
-    codexPath: $("codexPathInput").value.trim() || "codex",
-    autoRefreshInterval: Number($("refreshIntervalInput").value || 0),
-    closeBehavior: $("closeBehaviorInput").value,
-    autoRestartCodexOnSwitch: $("autoRestartInput").checked,
-    skipSwitchRestartConfirm: $("skipRestartConfirmInput").checked,
-  });
+  state.store = await apiCall("update_config", settingsPayload());
   syncSettingsForm();
   render();
   toast("設定已儲存");
+}));
+
+$("testTelegramBtn").addEventListener("click", () => guarded("測試 Telegram 通知", async () => {
+  state.store = await apiCall("update_config", settingsPayload());
+  const result = await apiCall("test_telegram_notification");
+  if (!result?.ok) throw new Error(result?.message || "Telegram 發送失敗");
+  syncSettingsForm();
+  toast("Telegram 測試通知已送出");
 }));
 
 $("openAccountsFolderBtn").addEventListener("click", () => openStorageFolder("accountsFile"));
