@@ -13,8 +13,14 @@ from auth import read_codex_auth
 from constants import APP_NAME, APP_VERSION, BACKUP_FORMAT, LEGACY_BACKUP_FORMAT
 from paths import accounts_store_path, app_data_dir, auth_store_dir, codex_auth_path, manager_dir
 from storage import delete_account_auth, load_account_auth, load_store, save_store
-from system_ops import open_folder, restart_codex_processes, run_codex_login
-from telegram_notify import build_notification_messages, build_switch_message, send_telegram_message
+from system_ops import is_startup_enabled, open_folder, restart_codex_processes, run_codex_login, set_startup_enabled
+from telegram_notify import (
+    build_notification_messages,
+    build_sample_notifications,
+    build_switch_message,
+    send_telegram_message,
+    telegram_ready,
+)
 from time_utils import now_iso, now_ms
 from usage import build_usage_info, get_codex_wham_usage
 
@@ -22,9 +28,11 @@ from usage import build_usage_info, get_codex_wham_usage
 class Api:
     def get_initial_state(self) -> dict[str, Any]:
         sync_current_account()
+        store = load_store()
+        store["config"]["autoLaunchOnStartup"] = is_startup_enabled()
         return {
             "name": APP_NAME,
-            "store": load_store(),
+            "store": store,
             "version": APP_VERSION,
             "storage": self.get_storage_locations(),
         }
@@ -109,6 +117,7 @@ class Api:
             "hasInitialized",
             "autoRestartCodexOnSwitch",
             "skipSwitchRestartConfirm",
+            "autoLaunchOnStartup",
             "telegramBotToken",
             "telegramChatId",
             "notifyOnSwitch",
@@ -119,13 +128,33 @@ class Api:
             "notifyFiveHourThreshold",
             "notifyWeeklyThreshold",
         }
-        store["config"].update({key: value for key, value in (config or {}).items() if key in allowed})
+        updates = {key: value for key, value in (config or {}).items() if key in allowed}
+        store["config"].update(updates)
+        if "autoLaunchOnStartup" in updates:
+            store["config"]["autoLaunchOnStartup"] = set_startup_enabled(bool(updates["autoLaunchOnStartup"]))
         save_store(store)
         return load_store()
 
     def test_telegram_notification(self) -> dict[str, Any]:
         config = load_store().get("config") or {}
         return send_telegram_message(config, "Codex Keyring: Telegram 通知測試成功")
+
+    def send_all_notification_samples(self) -> dict[str, Any]:
+        store = load_store()
+        config = store.get("config") or {}
+        if not telegram_ready(config):
+            return {"ok": False, "message": "Telegram token 或 chat id 未設定", "sent": 0, "results": []}
+
+        account = next((item for item in store.get("accounts") or [] if item.get("isActive")), None)
+        if account is None:
+            account = (store.get("accounts") or [None])[0]
+        if not account:
+            return {"ok": False, "message": "沒有可用帳號可產生通知樣本", "sent": 0, "results": []}
+
+        messages = build_sample_notifications(account)
+        results = [send_telegram_message(config, message) for message in messages]
+        sent = sum(1 for item in results if item.get("ok"))
+        return {"ok": sent == len(results), "sent": sent, "total": len(results), "results": results}
 
     def refresh_usage(self, account_id: str) -> dict[str, Any]:
         result = get_codex_wham_usage(account_id)

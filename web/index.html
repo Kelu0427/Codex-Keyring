@@ -158,6 +158,10 @@
               </div>
               <div class="notification-grid">
                 <label class="check">
+                  <input id="autoLaunchOnStartupInput" type="checkbox" />
+                  開機時自動啟動（使用 Telegram 通知建議啟用）
+                </label>
+                <label class="check">
                   <input id="notifyOnSwitchInput" type="checkbox" />
                   帳號切換時通知
                 </label>
@@ -210,6 +214,7 @@
               </div>
               <div class="inline-actions">
                 <button id="testTelegramBtn" type="button">測試通知</button>
+                <button id="sendAllTelegramSamplesBtn" type="button">發送全部通知樣本</button>
               </div>
             </section>
 

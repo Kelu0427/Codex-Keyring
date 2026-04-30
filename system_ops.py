@@ -5,6 +5,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+if sys.platform == "win32":
+    import winreg
+
+STARTUP_APP_NAME = "CodexKeyring"
+
 
 def normalize_codex_path(codex_path: str | None) -> str:
     return (codex_path or "codex").strip().strip('"').strip("'") or "codex"
@@ -104,3 +109,43 @@ def open_folder(path: str) -> dict[str, object]:
         subprocess.Popen(["xdg-open", str(target)])
 
     return {"opened": True, "path": str(target)}
+
+
+def _startup_command() -> str:
+    root = Path(__file__).resolve().parent
+    app_script = root / "app.py"
+    pythonw = Path(sys.executable).with_name("pythonw.exe")
+    runner = pythonw if pythonw.exists() else Path(sys.executable)
+    return f'"{runner}" "{app_script}"'
+
+
+def is_startup_enabled() -> bool:
+    if sys.platform != "win32":
+        return False
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_READ) as key:
+            value, _ = winreg.QueryValueEx(key, STARTUP_APP_NAME)
+            return bool(str(value).strip())
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return False
+
+
+def set_startup_enabled(enabled: bool) -> bool:
+    if sys.platform != "win32":
+        return False
+    with winreg.OpenKey(
+        winreg.HKEY_CURRENT_USER,
+        r"Software\Microsoft\Windows\CurrentVersion\Run",
+        0,
+        winreg.KEY_SET_VALUE,
+    ) as key:
+        if enabled:
+            winreg.SetValueEx(key, STARTUP_APP_NAME, 0, winreg.REG_SZ, _startup_command())
+            return True
+        try:
+            winreg.DeleteValue(key, STARTUP_APP_NAME)
+        except FileNotFoundError:
+            pass
+        return False

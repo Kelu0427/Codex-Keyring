@@ -245,6 +245,7 @@ function syncSettingsForm() {
   $("closeBehaviorInput").value = config.closeBehavior || "ask";
   $("autoRestartInput").checked = !!config.autoRestartCodexOnSwitch;
   $("skipRestartConfirmInput").checked = !!config.skipSwitchRestartConfirm;
+  $("autoLaunchOnStartupInput").checked = !!config.autoLaunchOnStartup;
   $("telegramBotTokenInput").value = config.telegramBotToken || "";
   $("telegramChatIdInput").value = config.telegramChatId || "";
   $("notifyOnSwitchInput").checked = !!config.notifyOnSwitch;
@@ -266,6 +267,7 @@ function settingsPayload() {
     closeBehavior: $("closeBehaviorInput").value,
     autoRestartCodexOnSwitch: $("autoRestartInput").checked,
     skipSwitchRestartConfirm: $("skipRestartConfirmInput").checked,
+    autoLaunchOnStartup: $("autoLaunchOnStartupInput").checked,
     telegramBotToken: $("telegramBotTokenInput").value.trim(),
     telegramChatId: $("telegramChatIdInput").value.trim(),
     notifyOnSwitch: $("notifyOnSwitchInput").checked,
@@ -359,6 +361,11 @@ $("saveSettingsBtn").addEventListener("click", () => guarded("儲存設定", asy
   state.store = await apiCall("update_config", settingsPayload());
   syncSettingsForm();
   render();
+  const config = state.store.config || {};
+  if ((config.telegramBotToken || "").trim() && (config.telegramChatId || "").trim() && !config.autoLaunchOnStartup) {
+    toast("已儲存。若要穩定收到 Telegram 通知，建議勾選「開機時自動啟動」。");
+    return;
+  }
   toast("設定已儲存");
 }));
 
@@ -368,6 +375,13 @@ $("testTelegramBtn").addEventListener("click", () => guarded("測試 Telegram �
   if (!result?.ok) throw new Error(result?.message || "Telegram 發送失敗");
   syncSettingsForm();
   toast("Telegram 測試通知已送出");
+}));
+
+$("sendAllTelegramSamplesBtn").addEventListener("click", () => guarded("發送全部通知樣本", async () => {
+  state.store = await apiCall("update_config", settingsPayload());
+  const result = await apiCall("send_all_notification_samples");
+  if (!result?.ok) throw new Error(result?.message || `僅送出 ${result?.sent || 0}/${result?.total || 0}`);
+  toast(`已送出 ${result.sent}/${result.total} 則通知樣本`);
 }));
 
 $("openAccountsFolderBtn").addEventListener("click", () => openStorageFolder("accountsFile"));
