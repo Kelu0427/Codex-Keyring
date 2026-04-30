@@ -77,6 +77,44 @@ def reset_value(limit: dict[str, Any] | None) -> str | None:
     return str(value) if value else None
 
 
+def usage_summary(account: dict[str, Any]) -> str:
+    usage = account.get("usageInfo") or {}
+    info = account.get("accountInfo") or {}
+    lines = [f"帳號：{account_label(account)}"]
+    email = info.get("email")
+    if email:
+        lines.append(f"Email：{email}")
+    plan = info.get("planType")
+    if plan:
+        lines.append(f"方案：{plan}")
+
+    for label, key in (("5 小時", "fiveHourLimit"), ("每週", "weeklyLimit"), ("Code Review", "codeReviewLimit")):
+        limit = usage.get(key)
+        percent = percent_value(limit)
+        reset = reset_value(limit)
+        if percent is not None:
+            suffix = f"，重置 {reset}" if reset else ""
+            lines.append(f"{label}剩餘：{percent}%{suffix}")
+
+    expiry = parse_expiry(info.get("subscriptionActiveUntil"))
+    if expiry:
+        lines.append(f"訂閱到期：{expiry.astimezone().strftime('%Y-%m-%d %H:%M')}")
+
+    status = usage.get("status")
+    if status and status != "ok":
+        lines.append(f"狀態：{status}")
+    if usage.get("message"):
+        lines.append(f"訊息：{usage['message']}")
+
+    return "\n".join(lines)
+
+
+def build_switch_message(account: dict[str, Any], config: dict[str, Any]) -> str | None:
+    if not telegram_ready(config) or not config.get("notifyOnSwitch"):
+        return None
+    return "Codex Keyring: 已切換帳號\n" + usage_summary(account)
+
+
 def build_notification_messages(
     account: dict[str, Any],
     previous_usage: dict[str, Any],

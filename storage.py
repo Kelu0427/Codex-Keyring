@@ -18,6 +18,7 @@ def default_config() -> dict[str, Any]:
         "skipSwitchRestartConfirm": False,
         "telegramBotToken": "",
         "telegramChatId": "",
+        "notifyOnSwitch": False,
         "notifyOnRefresh": False,
         "notifyOnExpirySoon": False,
         "notifyOnFiveHourReset": False,

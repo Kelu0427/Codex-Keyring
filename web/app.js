@@ -247,6 +247,7 @@ function syncSettingsForm() {
   $("skipRestartConfirmInput").checked = !!config.skipSwitchRestartConfirm;
   $("telegramBotTokenInput").value = config.telegramBotToken || "";
   $("telegramChatIdInput").value = config.telegramChatId || "";
+  $("notifyOnSwitchInput").checked = !!config.notifyOnSwitch;
   $("notifyOnRefreshInput").checked = !!config.notifyOnRefresh;
   $("notifyOnExpirySoonInput").checked = !!config.notifyOnExpirySoon;
   $("notifyOnFiveHourResetInput").checked = !!config.notifyOnFiveHourReset;
@@ -267,6 +268,7 @@ function settingsPayload() {
     skipSwitchRestartConfirm: $("skipRestartConfirmInput").checked,
     telegramBotToken: $("telegramBotTokenInput").value.trim(),
     telegramChatId: $("telegramChatIdInput").value.trim(),
+    notifyOnSwitch: $("notifyOnSwitchInput").checked,
     notifyOnRefresh: $("notifyOnRefreshInput").checked,
     notifyOnExpirySoon: $("notifyOnExpirySoonInput").checked,
     notifyOnFiveHourReset: $("notifyOnFiveHourResetInput").checked,

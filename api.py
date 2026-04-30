@@ -14,7 +14,7 @@ from constants import APP_NAME, APP_VERSION, BACKUP_FORMAT, LEGACY_BACKUP_FORMAT
 from paths import accounts_store_path, app_data_dir, auth_store_dir, codex_auth_path, manager_dir
 from storage import delete_account_auth, load_account_auth, load_store, save_store
 from system_ops import open_folder, restart_codex_processes, run_codex_login
-from telegram_notify import build_notification_messages, send_telegram_message
+from telegram_notify import build_notification_messages, build_switch_message, send_telegram_message
 from time_utils import now_iso, now_ms
 from usage import build_usage_info, get_codex_wham_usage
 
@@ -68,12 +68,20 @@ class Api:
 
     def switch_account(self, account_id: str, restart: bool = False) -> dict[str, Any]:
         switch_to_account(account_id)
+        store = load_store()
+        notification = None
+        for account in store.get("accounts") or []:
+            if account.get("id") == account_id:
+                message = build_switch_message(account, store.get("config") or {})
+                if message:
+                    notification = send_telegram_message(store.get("config") or {}, message)
+                break
         result = (
-            restart_codex_processes((load_store().get("config") or {}).get("codexPath") or "codex")
+            restart_codex_processes((store.get("config") or {}).get("codexPath") or "codex")
             if restart
             else None
         )
-        return {"store": load_store(), "restart": result}
+        return {"store": load_store(), "restart": result, "notification": notification}
 
     def remove_account(self, account_id: str) -> dict[str, Any]:
         store = load_store()
@@ -103,6 +111,7 @@ class Api:
             "skipSwitchRestartConfirm",
             "telegramBotToken",
             "telegramChatId",
+            "notifyOnSwitch",
             "notifyOnRefresh",
             "notifyOnExpirySoon",
             "notifyOnFiveHourReset",
