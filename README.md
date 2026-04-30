@@ -127,4 +127,4 @@ Codex-Keyring/
 
 ## License
 
-此倉庫目前未附帶 LICENSE 檔案。若要公開發布，建議補上明確授權條款。
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
