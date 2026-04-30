@@ -91,6 +91,42 @@ def usage_indicator_for_limit(limit: dict[str, Any] | None) -> str:
     return usage_indicator(percent_value(limit))
 
 
+def _should_send_once(state: dict[str, Any], key: str, value: str, cooldown_seconds: int = 180) -> bool:
+    """
+    De-duplicate notifications for the same event value in a short window.
+    Works with legacy string state and new object state.
+    """
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    record = state.get(key)
+
+    if isinstance(record, dict):
+        last_value = str(record.get("value") or "")
+        last_ts = int(record.get("ts") or 0)
+        if last_value == value and now_ts - last_ts < cooldown_seconds:
+            return False
+    elif isinstance(record, str):
+        if record == value:
+            return False
+
+    state[key] = {"value": value, "ts": now_ts}
+    return True
+
+
+def _is_real_reset(previous_usage: dict[str, Any], usage: dict[str, Any], limit_key: str) -> bool:
+    """
+    Prevent false positives caused by reset-time text drift.
+    A real reset should show a clear percent rebound.
+    """
+    old_percent = percent_value(previous_usage.get(limit_key))
+    new_percent = percent_value(usage.get(limit_key))
+    if old_percent is None or new_percent is None:
+        return False
+    if new_percent <= old_percent:
+        return False
+    # Strong rebound (e.g. 0% -> 100%, 25% -> 90%)
+    return (new_percent - old_percent) >= 25
+
+
 def build_usage_notification(
     account: dict[str, Any],
     title: str = "Codex 使用量通知",
@@ -222,16 +258,26 @@ def build_notification_messages(
     if config.get("notifyOnFiveHourReset"):
         old_reset = reset_value(previous_usage.get("fiveHourLimit"))
         new_reset = reset_value(usage.get("fiveHourLimit"))
-        if old_reset and new_reset and old_reset != new_reset and state.get("fiveHourReset") != new_reset:
+        if (
+            old_reset
+            and new_reset
+            and old_reset != new_reset
+            and _is_real_reset(previous_usage, usage, "fiveHourLimit")
+            and _should_send_once(state, "fiveHourReset", new_reset)
+        ):
             messages.append(build_usage_notification(account, "Codex 使用量通知（5 小時已刷新）", "fiveHourLimit", "5 小時"))
-            state["fiveHourReset"] = new_reset
 
     if config.get("notifyOnWeeklyReset"):
         old_reset = reset_value(previous_usage.get("weeklyLimit"))
         new_reset = reset_value(usage.get("weeklyLimit"))
-        if old_reset and new_reset and old_reset != new_reset and state.get("weeklyReset") != new_reset:
+        if (
+            old_reset
+            and new_reset
+            and old_reset != new_reset
+            and _is_real_reset(previous_usage, usage, "weeklyLimit")
+            and _should_send_once(state, "weeklyReset", new_reset)
+        ):
             messages.append(build_usage_notification(account, "Codex 使用量通知（每週已刷新）", "weeklyLimit", "每週"))
-            state["weeklyReset"] = new_reset
 
     five_threshold = parse_threshold(config.get("notifyFiveHourThreshold"))
     five_percent = percent_value(usage.get("fiveHourLimit"))
