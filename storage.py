@@ -17,6 +17,7 @@ def default_config() -> dict[str, Any]:
         "autoRestartCodexOnSwitch": False,
         "skipSwitchRestartConfirm": False,
         "autoLaunchOnStartup": False,
+        "startupLaunchMode": "show",
         "telegramBotToken": "",
         "telegramChatId": "",
         "notifyOnSwitch": False,

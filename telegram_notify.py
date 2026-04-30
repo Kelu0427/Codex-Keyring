@@ -178,6 +178,7 @@ def build_notification_messages(
     previous_usage: dict[str, Any],
     result: dict[str, Any],
     config: dict[str, Any],
+    refresh_source: str = "manual",
 ) -> list[str]:
     if not telegram_ready(config):
         return []
@@ -191,7 +192,8 @@ def build_notification_messages(
     if config.get("notifyOnRefresh"):
         status = result.get("status")
         if status == "ok":
-            messages.append(build_usage_notification(account, "Codex 使用量通知（手動刷新）", "fiveHourLimit", "5 小時"))
+            refresh_label = "自動刷新" if str(refresh_source).lower() == "auto" else "手動刷新"
+            messages.append(build_usage_notification(account, f"Codex 使用量通知（{refresh_label}）", "fiveHourLimit", "5 小時"))
         else:
             messages.append(f"Codex Keyring: {label} 用量更新失敗：{result.get('message') or status}")
 

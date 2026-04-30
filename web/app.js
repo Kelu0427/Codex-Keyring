@@ -6,6 +6,8 @@ const state = {
   filters: { plan: "all", expiry: "all", hourly: "all", weekly: "all" },
   busy: false,
   autoRefreshTimer: null,
+  syncTimer: null,
+  lastStoreSnapshot: "",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -238,6 +240,34 @@ function render() {
   scheduleAutoRefresh();
 }
 
+function computeStoreSnapshot(store) {
+  const accounts = (store?.accounts || []).map((account) => ({
+    id: account.id,
+    updatedAt: account.updatedAt || "",
+    usageUpdated: account.usageInfo?.lastUpdated || "",
+    usageStatus: account.usageInfo?.status || "",
+  }));
+  return JSON.stringify(accounts);
+}
+
+function scheduleStoreSync() {
+  if (state.syncTimer) clearInterval(state.syncTimer);
+  state.syncTimer = setInterval(async () => {
+    if (state.busy) return;
+    try {
+      const latest = await apiCall("load_accounts");
+      const nextSnapshot = computeStoreSnapshot(latest);
+      if (nextSnapshot !== state.lastStoreSnapshot) {
+        state.store = latest;
+        state.lastStoreSnapshot = nextSnapshot;
+        render();
+      }
+    } catch (_) {
+      // keep silent; this runs in background
+    }
+  }, 6000);
+}
+
 function syncSettingsForm() {
   const config = state.store.config || {};
   $("codexPathInput").value = config.codexPath || "codex";
@@ -246,6 +276,7 @@ function syncSettingsForm() {
   $("autoRestartInput").checked = !!config.autoRestartCodexOnSwitch;
   $("skipRestartConfirmInput").checked = !!config.skipSwitchRestartConfirm;
   $("autoLaunchOnStartupInput").checked = !!config.autoLaunchOnStartup;
+  $("startupLaunchModeInput").value = config.startupLaunchMode || "show";
   $("telegramBotTokenInput").value = config.telegramBotToken || "";
   $("telegramChatIdInput").value = config.telegramChatId || "";
   $("notifyOnSwitchInput").checked = !!config.notifyOnSwitch;
@@ -268,6 +299,7 @@ function settingsPayload() {
     autoRestartCodexOnSwitch: $("autoRestartInput").checked,
     skipSwitchRestartConfirm: $("skipRestartConfirmInput").checked,
     autoLaunchOnStartup: $("autoLaunchOnStartupInput").checked,
+    startupLaunchMode: $("startupLaunchModeInput").value || "show",
     telegramBotToken: $("telegramBotTokenInput").value.trim(),
     telegramChatId: $("telegramChatIdInput").value.trim(),
     notifyOnSwitch: $("notifyOnSwitchInput").checked,
@@ -285,21 +317,13 @@ function scheduleAutoRefresh() {
     clearInterval(state.autoRefreshTimer);
     state.autoRefreshTimer = null;
   }
-  const minutes = Number(state.store.config?.autoRefreshInterval || 0);
-  if (!Number.isFinite(minutes) || minutes <= 0) return;
-  state.autoRefreshTimer = setInterval(() => {
-    if (state.busy || !(state.store.accounts || []).length) return;
-    guarded("自動更新", async () => {
-      const result = await apiCall("refresh_all_usage");
-      state.store = result.store;
-      render();
-    });
-  }, minutes * 60 * 1000);
+  // Auto refresh moved to backend scheduler to avoid duplicate runs/notifications.
 }
 
 async function reload() {
   const store = await apiCall("load_accounts");
   state.store = store;
+  state.lastStoreSnapshot = computeStoreSnapshot(store);
   render();
 }
 
@@ -329,6 +353,7 @@ async function init() {
   const initial = await apiCall("get_initial_state");
   state.appName = initial.name || "Codex Keyring";
   state.store = initial.store;
+  state.lastStoreSnapshot = computeStoreSnapshot(state.store);
   state.storage = initial.storage || {};
   $("appTitle").textContent = state.appName;
   const versionText = String(initial.version || "--").replace(/-py$/i, "");
@@ -336,6 +361,7 @@ async function init() {
   syncSettingsForm();
   showView("accounts");
   render();
+  scheduleStoreSync();
 }
 
 $("themeToggle").addEventListener("click", () =>
@@ -472,7 +498,7 @@ $("backupExportBtn").addEventListener("click", () =>
 
 $("refreshAllBtn").addEventListener("click", () =>
   guarded("更新全部用量", async () => {
-    const result = await apiCall("refresh_all_usage");
+    const result = await apiCall("refresh_all_usage", "manual");
     state.store = result.store;
     render();
     toast(`更新完成：成功 ${result.updated}，未更新 ${result.missing}`);
@@ -509,7 +535,7 @@ $("accounts").addEventListener("click", (event) => {
       toast("已切換帳號");
     }
     if (action === "refresh") {
-      const result = await apiCall("refresh_usage", id);
+      const result = await apiCall("refresh_usage", id, "manual");
       state.store = result.store;
       render();
       toast(result.result.status === "ok" ? "用量已更新" : `用量更新失敗：${result.result.message || result.result.status}`);

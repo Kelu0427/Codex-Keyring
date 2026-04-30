@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -34,10 +35,18 @@ from usage import build_usage_info, get_codex_wham_usage
 
 
 class Api:
+    def __init__(self) -> None:
+        self._refresh_lock = threading.RLock()
+        self._last_auto_refresh_at = 0.0
+
     def get_initial_state(self) -> dict[str, Any]:
         sync_current_account()
         store = load_store()
-        store["config"]["autoLaunchOnStartup"] = is_startup_enabled()
+        startup_enabled = is_startup_enabled()
+        if startup_enabled:
+            # refresh startup command format (includes --startup flag)
+            startup_enabled = set_startup_enabled(True)
+        store["config"]["autoLaunchOnStartup"] = startup_enabled
         return {
             "name": APP_NAME,
             "store": store,
@@ -126,6 +135,7 @@ class Api:
             "autoRestartCodexOnSwitch",
             "skipSwitchRestartConfirm",
             "autoLaunchOnStartup",
+            "startupLaunchMode",
             "telegramBotToken",
             "telegramChatId",
             "notifyOnSwitch",
@@ -164,42 +174,57 @@ class Api:
         sent = sum(1 for item in results if item.get("ok"))
         return {"ok": sent == len(results), "sent": sent, "total": len(results), "results": results}
 
-    def refresh_usage(self, account_id: str) -> dict[str, Any]:
-        result = get_codex_wham_usage(account_id)
-        store = load_store()
-        notification_results = []
-        for account in store["accounts"]:
-            if account["id"] == account_id:
-                previous_usage = dict(account.get("usageInfo") or {})
-                account["usageInfo"] = (
-                    build_usage_info(result)
-                    if result["status"] == "ok"
-                    else {
-                        "status": result["status"],
-                        "message": result.get("message"),
-                        "planType": result.get("plan_type"),
-                        "lastUpdated": now_iso(),
-                    }
-                )
-                account["updatedAt"] = now_iso()
-                messages = build_notification_messages(account, previous_usage, result, store.get("config") or {})
-                for message in messages:
-                    notification_results.append(send_telegram_message(store.get("config") or {}, message))
-        save_store(store)
-        return {"result": result, "store": load_store(), "notifications": notification_results}
+    def refresh_usage(self, account_id: str, refresh_source: str = "manual") -> dict[str, Any]:
+        with self._refresh_lock:
+            result = get_codex_wham_usage(account_id)
+            store = load_store()
+            notification_results = []
+            for account in store["accounts"]:
+                if account["id"] == account_id:
+                    previous_usage = dict(account.get("usageInfo") or {})
+                    account["usageInfo"] = (
+                        build_usage_info(result)
+                        if result["status"] == "ok"
+                        else {
+                            "status": result["status"],
+                            "message": result.get("message"),
+                            "planType": result.get("plan_type"),
+                            "lastUpdated": now_iso(),
+                        }
+                    )
+                    account["updatedAt"] = now_iso()
+                    messages = build_notification_messages(
+                        account,
+                        previous_usage,
+                        result,
+                        store.get("config") or {},
+                        refresh_source,
+                    )
+                    for message in messages:
+                        notification_results.append(send_telegram_message(store.get("config") or {}, message))
+            save_store(store)
+            return {"result": result, "store": load_store(), "notifications": notification_results}
 
-    def refresh_all_usage(self) -> dict[str, Any]:
-        updated = 0
-        missing = 0
-        store = load_store()
-        for account in list(store["accounts"]):
-            response = self.refresh_usage(account["id"])
-            if response["result"]["status"] == "ok":
-                updated += 1
-            else:
-                missing += 1
-            time.sleep(0.25)
-        return {"updated": updated, "missing": missing, "store": load_store()}
+    def refresh_all_usage(self, refresh_source: str = "manual") -> dict[str, Any]:
+        with self._refresh_lock:
+            now = time.time()
+            if refresh_source == "auto":
+                # Debounce duplicate auto refresh calls (UI timer + background thread or multi-instance overlap).
+                if now - self._last_auto_refresh_at < 30:
+                    return {"updated": 0, "missing": 0, "store": load_store(), "skipped": True}
+                self._last_auto_refresh_at = now
+
+            updated = 0
+            missing = 0
+            store = load_store()
+            for account in list(store["accounts"]):
+                response = self.refresh_usage(account["id"], refresh_source)
+                if response["result"]["status"] == "ok":
+                    updated += 1
+                else:
+                    missing += 1
+                time.sleep(0.25)
+            return {"updated": updated, "missing": missing, "store": load_store()}
 
     def choose_import_file(self) -> dict[str, Any] | None:
         paths = webview.windows[0].create_file_dialog(

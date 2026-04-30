@@ -181,11 +181,16 @@ def open_folder(path: str) -> dict[str, object]:
 
 
 def _startup_command() -> str:
+    # PyInstaller onefile/onedir: use the built executable itself.
+    if getattr(sys, "frozen", False):
+        return f'"{Path(sys.executable)}" --startup'
+
+    # Source mode: use pythonw + app.py
     root = Path(__file__).resolve().parent
     app_script = root / "app.py"
     pythonw = Path(sys.executable).with_name("pythonw.exe")
     runner = pythonw if pythonw.exists() else Path(sys.executable)
-    return f'"{runner}" "{app_script}"'
+    return f'"{runner}" "{app_script}" --startup'
 
 
 def is_startup_enabled() -> bool:
@@ -229,12 +234,12 @@ def check_for_updates() -> dict[str, object]:
                 latest = _fetch_latest_tag()
             except Exception:
                 return {
-                    "supported": False,
+                    "supported": True,
                     "available": False,
-                    "message": "找不到 Release/Tag。請先在 GitHub 建立 Release 或 Tag。",
+                    "message": "目前未有新版本",
                 }
         else:
-            return {"supported": False, "available": False, "message": f"無法檢查更新：{exc}"}
+            return {"supported": True, "available": False, "message": "目前未有新版本"}
 
     current_version = APP_VERSION
     latest_version = latest.get("tag", "")
@@ -246,7 +251,7 @@ def check_for_updates() -> dict[str, object]:
         "latestVersion": latest_version,
         "downloadUrl": latest.get("download_url", ""),
         "releaseUrl": latest.get("release_url", ""),
-        "message": "有可用更新" if available else "目前已是最新版本",
+        "message": "有可用更新" if available else "目前未有新版本",
     }
 
 
