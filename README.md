@@ -2,7 +2,7 @@
 
 Codex Keyring 是一個 Windows 桌面工具，用來管理多個 OpenAI Codex 登入帳號。它會把不同帳號的 `auth.json` 備份在本機，並在切換帳號時寫回 `%USERPROFILE%\.codex\auth.json`。
 
-此版本使用 Python + pywebview 製作。
+此工具使用 Python + pywebview 製作。
 
 ## 主要功能
 
@@ -120,12 +120,6 @@ Codex-Keyring/
 │   └── style.css
 └── requirements.txt
 ```
-
-## 已知限制
-
-- 用量查詢依賴 `wham/usage` API 與帳號 token，OpenAI 端介面變動時可能需要更新解析邏輯。
-- auth 檔案目前是明文保存，安全性取決於本機帳號與檔案權限。
-- 自動重啟 Codex 主要針對 Windows 環境設計。
 
 ## License
 

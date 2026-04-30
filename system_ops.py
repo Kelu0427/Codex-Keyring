@@ -1,14 +1,83 @@
 from __future__ import annotations
 
+import json
+import re
 import shutil
 import subprocess
 import sys
+import urllib.request
+import webbrowser
 from pathlib import Path
 
 if sys.platform == "win32":
     import winreg
 
 STARTUP_APP_NAME = "CodexKeyring"
+RELEASE_API_URL = "https://api.github.com/repos/Kelu0427/Codex-Keyring/releases/latest"
+TAGS_API_URL = "https://api.github.com/repos/Kelu0427/Codex-Keyring/tags"
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def _run_git(args: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=_repo_root(),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+
+
+def _normalize_version(text: str | None) -> tuple[int, ...]:
+    raw = (text or "").strip().lower().lstrip("v").replace("-py", "")
+    numbers = [int(item) for item in re.findall(r"\d+", raw)]
+    return tuple(numbers or [0])
+
+
+def _fetch_json(url: str) -> object:
+    request = urllib.request.Request(
+        url,
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "Codex-Keyring-Updater"},
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _fetch_latest_release() -> dict[str, str]:
+    payload = _fetch_json(RELEASE_API_URL)
+    if not isinstance(payload, dict):
+        raise ValueError("release payload invalid")
+    tag = str(payload.get("tag_name") or "").strip()
+    release_url = str(payload.get("html_url") or "").strip()
+    assets = payload.get("assets") or []
+    download_url = ""
+    if isinstance(assets, list) and assets:
+        exe_asset = next((item for item in assets if str(item.get("name", "")).lower().endswith(".exe")), None)
+        chosen = exe_asset or assets[0]
+        if isinstance(chosen, dict):
+            download_url = str(chosen.get("browser_download_url") or "").strip()
+    return {
+        "tag": tag,
+        "release_url": release_url,
+        "download_url": download_url or release_url,
+    }
+
+
+def _fetch_latest_tag() -> dict[str, str]:
+    payload = _fetch_json(TAGS_API_URL)
+    if not isinstance(payload, list) or not payload:
+        raise ValueError("no tags found")
+    first = payload[0] if isinstance(payload[0], dict) else {}
+    tag = str(first.get("name") or "").strip()
+    return {
+        "tag": tag,
+        "release_url": "https://github.com/Kelu0427/Codex-Keyring/releases",
+        "download_url": f"https://github.com/Kelu0427/Codex-Keyring/archive/refs/tags/{tag}.zip" if tag else "",
+    }
 
 
 def normalize_codex_path(codex_path: str | None) -> str:
@@ -81,15 +150,15 @@ def run_codex_login(codex_path: str, timeout_seconds: int = 180) -> dict[str, ob
         if completed.returncode != 0:
             return {
                 "status": "process_error",
-                "message": f"codex login 結束碼 {completed.returncode}",
+                "message": f"codex login failed with code {completed.returncode}",
                 "command": " ".join(invocation),
             }
     except subprocess.TimeoutExpired:
-        return {"status": "timeout", "message": "codex login 等待逾時"}
+        return {"status": "timeout", "message": "codex login timed out"}
     except FileNotFoundError as exc:
         return {
             "status": "process_error",
-            "message": f"找不到 Codex CLI：{exc.filename or codex_path or 'codex'}。請到設定填入 codex.cmd 或 codex.exe 的完整路徑。",
+            "message": f"Codex CLI not found: {exc.filename or codex_path or 'codex'}",
             "command": " ".join(invocation),
         }
     except Exception as exc:
@@ -126,9 +195,7 @@ def is_startup_enabled() -> bool:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_READ) as key:
             value, _ = winreg.QueryValueEx(key, STARTUP_APP_NAME)
             return bool(str(value).strip())
-    except FileNotFoundError:
-        return False
-    except OSError:
+    except (FileNotFoundError, OSError):
         return False
 
 
@@ -149,3 +216,56 @@ def set_startup_enabled(enabled: bool) -> bool:
         except FileNotFoundError:
             pass
         return False
+
+
+def check_for_updates() -> dict[str, object]:
+    from constants import APP_VERSION
+
+    try:
+        latest = _fetch_latest_release()
+    except Exception as exc:
+        if "404" in str(exc):
+            try:
+                latest = _fetch_latest_tag()
+            except Exception:
+                return {
+                    "supported": False,
+                    "available": False,
+                    "message": "找不到 Release/Tag。請先在 GitHub 建立 Release 或 Tag。",
+                }
+        else:
+            return {"supported": False, "available": False, "message": f"無法檢查更新：{exc}"}
+
+    current_version = APP_VERSION
+    latest_version = latest.get("tag", "")
+    available = _normalize_version(str(latest_version)) > _normalize_version(str(current_version))
+    return {
+        "supported": True,
+        "available": available,
+        "currentVersion": current_version,
+        "latestVersion": latest_version,
+        "downloadUrl": latest.get("download_url", ""),
+        "releaseUrl": latest.get("release_url", ""),
+        "message": "有可用更新" if available else "目前已是最新版本",
+    }
+
+
+def apply_update() -> dict[str, object]:
+    status = check_for_updates()
+    if not status.get("supported"):
+        return {**status, "updated": False}
+    if not status.get("available"):
+        return {**status, "updated": False}
+
+    download_url = str(status.get("downloadUrl") or status.get("releaseUrl") or "").strip()
+    if not download_url:
+        return {"supported": True, "available": True, "updated": False, "message": "找不到下載連結"}
+
+    webbrowser.open(download_url)
+    return {
+        "supported": True,
+        "available": True,
+        "updated": True,
+        "message": "已開啟更新下載頁面",
+        "downloadUrl": download_url,
+    }

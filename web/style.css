@@ -612,10 +612,15 @@ footer {
   right: 0;
   bottom: 0;
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
   background: color-mix(in srgb, var(--panel) 88%, transparent);
   border-top: 1px solid var(--border);
   padding: 9px 26px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.footer-version {
   color: var(--muted);
   font-size: 12px;
 }

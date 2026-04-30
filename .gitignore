@@ -8,3 +8,10 @@ env/
 *.log
 .DS_Store
 Thumbs.db
+img/
+
+# PyInstaller / packaging artifacts
+build/
+dist/
+*.spec
+*.zip

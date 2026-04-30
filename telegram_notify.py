@@ -87,6 +87,10 @@ def usage_indicator(percent: int | None) -> str:
     return "🔴"
 
 
+def usage_indicator_for_limit(limit: dict[str, Any] | None) -> str:
+    return usage_indicator(percent_value(limit))
+
+
 def build_usage_notification(
     account: dict[str, Any],
     title: str = "Codex 使用量通知",
@@ -127,7 +131,7 @@ def usage_summary(account: dict[str, Any]) -> str:
         reset = reset_value(limit)
         if percent is not None:
             suffix = f"，重置 {reset}" if reset else ""
-            lines.append(f"{label}剩餘：{percent}%{suffix}")
+            lines.append(f"{usage_indicator_for_limit(limit)} {label}剩餘：{percent}%{suffix}")
 
     expiry = parse_expiry(info.get("subscriptionActiveUntil"))
     if expiry:
@@ -149,13 +153,22 @@ def build_switch_message(account: dict[str, Any], config: dict[str, Any]) -> str
 
 
 def build_sample_notifications(account: dict[str, Any]) -> list[str]:
+    info = account.get("accountInfo") or {}
+    expiry = parse_expiry(info.get("subscriptionActiveUntil"))
+    expiry_text = expiry.astimezone().strftime("%Y-%m-%d %H:%M") if expiry else "未取得"
     return [
         build_usage_notification(account, "Codex 使用量通知（重整）", "fiveHourLimit", "5 小時"),
         build_usage_notification(account, "Codex 使用量通知（5 小時刷新）", "fiveHourLimit", "5 小時"),
         build_usage_notification(account, "Codex 使用量通知（每週刷新）", "weeklyLimit", "每週"),
         build_usage_notification(account, "Codex 使用量通知（5 小時門檻）", "fiveHourLimit", "5 小時"),
         build_usage_notification(account, "Codex 使用量通知（每週門檻）", "weeklyLimit", "每週"),
-        "Codex 訂閱提醒通知\n目前使用帳號：" + account_label(account),
+        "\n".join(
+            [
+                "Codex 訂閱提醒通知",
+                f"目前使用帳號：{account_label(account)}",
+                f"到期時間：{expiry_text}",
+            ]
+        ),
         "Codex Keyring: 已切換帳號\n" + usage_summary(account),
     ]
 
@@ -178,7 +191,7 @@ def build_notification_messages(
     if config.get("notifyOnRefresh"):
         status = result.get("status")
         if status == "ok":
-            messages.append(build_usage_notification(account, "Codex 使用量通知（已重整）", "fiveHourLimit", "5 小時"))
+            messages.append(build_usage_notification(account, "Codex 使用量通知（手動刷新）", "fiveHourLimit", "5 小時"))
         else:
             messages.append(f"Codex Keyring: {label} 用量更新失敗：{result.get('message') or status}")
 
@@ -190,7 +203,16 @@ def build_notification_messages(
             expiry_key = expiry.date().isoformat()
             if 0 < seconds_left <= 7 * 24 * 60 * 60 and state.get("expirySoon") != expiry_key:
                 days = max(1, int((seconds_left + 86399) // 86400))
-                messages.append(f"Codex Keyring: {label} 訂閱將在 {days} 天內到期（{expiry_key}）")
+                messages.append(
+                    "\n".join(
+                        [
+                            "Codex 訂閱提醒通知",
+                            f"目前使用帳號：{label}",
+                            f"訂閱將在 {days} 天內到期",
+                            f"到期時間：{expiry.astimezone().strftime('%Y-%m-%d %H:%M')}",
+                        ]
+                    )
+                )
                 state["expirySoon"] = expiry_key
             elif seconds_left > 7 * 24 * 60 * 60:
                 state.pop("expirySoon", None)

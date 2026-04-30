@@ -13,7 +13,15 @@ from auth import read_codex_auth
 from constants import APP_NAME, APP_VERSION, BACKUP_FORMAT, LEGACY_BACKUP_FORMAT
 from paths import accounts_store_path, app_data_dir, auth_store_dir, codex_auth_path, manager_dir
 from storage import delete_account_auth, load_account_auth, load_store, save_store
-from system_ops import is_startup_enabled, open_folder, restart_codex_processes, run_codex_login, set_startup_enabled
+from system_ops import (
+    apply_update,
+    check_for_updates,
+    is_startup_enabled,
+    open_folder,
+    restart_codex_processes,
+    run_codex_login,
+    set_startup_enabled,
+)
 from telegram_notify import (
     build_notification_messages,
     build_sample_notifications,
@@ -256,3 +264,9 @@ class Api:
 
     def restart_codex_processes(self) -> dict[str, bool]:
         return restart_codex_processes((load_store().get("config") or {}).get("codexPath") or "codex")
+
+    def check_update(self) -> dict[str, object]:
+        return check_for_updates()
+
+    def apply_update(self) -> dict[str, object]:
+        return apply_update()

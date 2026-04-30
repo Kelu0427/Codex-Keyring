@@ -23,12 +23,12 @@
           <div class="nav-group">
             <span class="nav-label">帳號</span>
             <details class="nav-dropdown">
-              <summary class="nav-item primary-nav">登入 Codex</summary>
+              <summary class="nav-item primary-nav">帳號功能</summary>
               <div class="nav-dropdown__panel">
-                <button id="quickLoginBtn" class="nav-item" type="button">登入 Codex</button>
-                <button id="importCurrentBtn" class="nav-item" type="button">匯入目前 auth</button>
-                <button id="backupImportBtn" class="nav-item" type="button">匯入備份</button>
-                <button id="backupExportBtn" class="nav-item" type="button">匯出備份</button>
+                <button id="quickLoginBtn" class="nav-item" type="button">新增並登入帳號</button>
+                <button id="importCurrentBtn" class="nav-item" type="button">匯入目前帳號 auth</button>
+                <button id="backupImportBtn" class="nav-item" type="button">從備份匯入帳號</button>
+                <button id="backupExportBtn" class="nav-item" type="button">匯出帳號備份</button>
               </div>
             </details>
             <button id="accountsNavBtn" class="nav-item active" type="button">帳號列表</button>
@@ -43,6 +43,7 @@
           <div class="nav-group">
             <span class="nav-label">系統</span>
             <button id="settingsNavBtn" class="nav-item" type="button">設定</button>
+            <button id="checkUpdateBtn" class="nav-item" type="button">檢查更新</button>
           </div>
         </aside>
 
@@ -254,6 +255,7 @@
 
       <footer>
         <span>© 2026 Codex Keyring. All rights reserved.</span>
+        <span id="appVersion" class="footer-version">v--</span>
       </footer>
     </div>
 

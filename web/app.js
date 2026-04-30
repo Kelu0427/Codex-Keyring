@@ -75,9 +75,7 @@ function showView(view) {
 }
 
 async function apiCall(name, ...args) {
-  if (!window.pywebview?.api) {
-    throw new Error("pywebview API 尚未就緒");
-  }
+  if (!window.pywebview?.api) throw new Error("pywebview API 尚未就緒");
   return window.pywebview.api[name](...args);
 }
 
@@ -134,7 +132,7 @@ function expiryText(account) {
   const days = Math.ceil(diff / (24 * 60 * 60 * 1000));
   return {
     label: days > 99 ? "99+ 天" : `${days} 天`,
-    percent: Math.max(6, Math.min(100, Math.round(diff / (30 * 24 * 60 * 60 * 1000) * 100))),
+    percent: Math.max(6, Math.min(100, Math.round((diff / (30 * 24 * 60 * 60 * 1000)) * 100))),
   };
 }
 
@@ -186,18 +184,19 @@ function renderAccounts() {
   const root = $("accounts");
   const accounts = filteredAccounts();
   $("empty").style.display = (state.store.accounts || []).length ? "none" : "block";
-  root.innerHTML = accounts.map((account) => {
-    const info = account.accountInfo || {};
-    const usage = account.usageInfo || {};
-    const expiry = expiryText(account);
-    const status = usage.status && usage.status !== "ok" ? `<span class="pill danger">${usage.status}</span>` : "";
-    const bucket = expiryBucket(account);
-    const accountTags = [
-      account.isActive ? `<span class="status-tag active-tag">目前使用</span>` : "",
-      bucket === "expired" ? `<span class="status-tag danger-tag">已到期</span>` : "",
-      ["within-24h", "within-7d"].includes(bucket) ? `<span class="status-tag warning-tag">即將到期</span>` : "",
-    ].join("");
-    return `
+  root.innerHTML = accounts
+    .map((account) => {
+      const info = account.accountInfo || {};
+      const usage = account.usageInfo || {};
+      const expiry = expiryText(account);
+      const status = usage.status && usage.status !== "ok" ? `<span class="pill danger">${usage.status}</span>` : "";
+      const bucket = expiryBucket(account);
+      const accountTags = [
+        account.isActive ? `<span class="status-tag active-tag">目前使用</span>` : "",
+        bucket === "expired" ? `<span class="status-tag danger-tag">已到期</span>` : "",
+        ["within-24h", "within-7d"].includes(bucket) ? `<span class="status-tag warning-tag">即將到期</span>` : "",
+      ].join("");
+      return `
       <article class="account-card ${account.isActive ? "active" : ""}" data-id="${account.id}">
         <div class="card-head">
           <div class="identity">
@@ -228,7 +227,8 @@ function renderAccounts() {
         </div>
       </article>
     `;
-  }).join("");
+    })
+    .join("");
 }
 
 function render() {
@@ -331,123 +331,160 @@ async function init() {
   state.store = initial.store;
   state.storage = initial.storage || {};
   $("appTitle").textContent = state.appName;
+  const versionText = String(initial.version || "--").replace(/-py$/i, "");
+  $("appVersion").textContent = `v${versionText}`;
   syncSettingsForm();
   showView("accounts");
   render();
 }
 
-$("themeToggle").addEventListener("click", () => guarded("切換主題", async () => {
-  const next = state.store.config?.theme === "light" ? "dark" : "light";
-  state.store = await apiCall("update_config", { theme: next });
-  render();
-}));
+$("themeToggle").addEventListener("click", () =>
+  guarded("切換主題", async () => {
+    const next = state.store.config?.theme === "light" ? "dark" : "light";
+    state.store = await apiCall("update_config", { theme: next });
+    render();
+  })
+);
 
-$("accountsNavBtn").addEventListener("click", () => {
-  showView("accounts");
-});
-
+$("accountsNavBtn").addEventListener("click", () => showView("accounts"));
 $("settingsNavBtn").addEventListener("click", () => {
   syncSettingsForm();
   showView("settings");
 });
 
+$("checkUpdateBtn").addEventListener("click", () =>
+  guarded("檢查更新", async () => {
+    const status = await apiCall("check_update");
+    if (!status?.supported) throw new Error(status?.message || "目前無法檢查更新");
+    if (!status.available) {
+      toast("目前已是最新版本");
+      return;
+    }
+    const shouldUpdate = await askConfirm({
+      title: "發現新版本",
+      message: `偵測到新版本，是否開啟下載頁面？\n目前：${status.currentVersion || "--"}\n最新：${status.latestVersion || "--"}`,
+      confirmText: "下載更新",
+    });
+    if (!shouldUpdate) return;
+    const result = await apiCall("apply_update");
+    if (!result?.updated) throw new Error(result?.message || "更新失敗");
+    toast("已開啟更新下載頁面，請下載安裝新版後重啟程式");
+  })
+);
+
 document.querySelector(".nav-dropdown__panel")?.addEventListener("click", (event) => {
-  if (event.target.closest("button")) {
-    event.currentTarget.closest("details")?.removeAttribute("open");
-  }
+  if (event.target.closest("button")) event.currentTarget.closest("details")?.removeAttribute("open");
 });
 
-$("saveSettingsBtn").addEventListener("click", () => guarded("儲存設定", async () => {
-  state.store = await apiCall("update_config", settingsPayload());
-  syncSettingsForm();
-  render();
-  const config = state.store.config || {};
-  if ((config.telegramBotToken || "").trim() && (config.telegramChatId || "").trim() && !config.autoLaunchOnStartup) {
-    toast("已儲存。若要穩定收到 Telegram 通知，建議勾選「開機時自動啟動」。");
-    return;
-  }
-  toast("設定已儲存");
-}));
+$("saveSettingsBtn").addEventListener("click", () =>
+  guarded("儲存設定", async () => {
+    state.store = await apiCall("update_config", settingsPayload());
+    syncSettingsForm();
+    render();
+    const config = state.store.config || {};
+    if ((config.telegramBotToken || "").trim() && (config.telegramChatId || "").trim() && !config.autoLaunchOnStartup) {
+      toast("已儲存。若要穩定收到 Telegram 通知，建議勾選「開機時自動啟動」。");
+      return;
+    }
+    toast("設定已儲存");
+  })
+);
 
-$("testTelegramBtn").addEventListener("click", () => guarded("測試 Telegram 通知", async () => {
-  state.store = await apiCall("update_config", settingsPayload());
-  const result = await apiCall("test_telegram_notification");
-  if (!result?.ok) throw new Error(result?.message || "Telegram 發送失敗");
-  syncSettingsForm();
-  toast("Telegram 測試通知已送出");
-}));
+$("testTelegramBtn").addEventListener("click", () =>
+  guarded("測試 Telegram 通知", async () => {
+    state.store = await apiCall("update_config", settingsPayload());
+    const result = await apiCall("test_telegram_notification");
+    if (!result?.ok) throw new Error(result?.message || "Telegram 發送失敗");
+    syncSettingsForm();
+    toast("Telegram 測試通知已送出");
+  })
+);
 
-$("sendAllTelegramSamplesBtn").addEventListener("click", () => guarded("發送全部通知樣本", async () => {
-  state.store = await apiCall("update_config", settingsPayload());
-  const result = await apiCall("send_all_notification_samples");
-  if (!result?.ok) throw new Error(result?.message || `僅送出 ${result?.sent || 0}/${result?.total || 0}`);
-  toast(`已送出 ${result.sent}/${result.total} 則通知樣本`);
-}));
+$("sendAllTelegramSamplesBtn").addEventListener("click", () =>
+  guarded("發送全部通知樣本", async () => {
+    state.store = await apiCall("update_config", settingsPayload());
+    const result = await apiCall("send_all_notification_samples");
+    if (!result?.ok) throw new Error(result?.message || `僅送出 ${result?.sent || 0}/${result?.total || 0}`);
+    toast(`已送出 ${result.sent}/${result.total} 則通知樣本`);
+  })
+);
 
 $("openAccountsFolderBtn").addEventListener("click", () => openStorageFolder("accountsFile"));
 $("openAuthFolderBtn").addEventListener("click", () => openStorageFolder("authStoreDir"));
 $("openCurrentAuthFolderBtn").addEventListener("click", () => openStorageFolder("currentCodexAuth"));
 
-$("importCurrentBtn").addEventListener("click", () => guarded("匯入目前 auth", async () => {
-  try {
-    const result = await apiCall("import_current_auth", false);
-    state.store = result.store;
-    render();
-    toast("已匯入目前 auth");
-  } catch (error) {
-    const shouldImportMissingIdentity =
-      String(error?.message || error).includes("missing_account_identity") &&
-      await askConfirm({
-        title: "帳號資訊不完整",
-        message: "這份 auth 沒有可辨識的帳號資訊，仍要匯入嗎？",
-        confirmText: "仍要匯入",
-      });
-    if (shouldImportMissingIdentity) {
-      const result = await apiCall("import_current_auth", true);
+$("importCurrentBtn").addEventListener("click", () =>
+  guarded("匯入目前 auth", async () => {
+    try {
+      const result = await apiCall("import_current_auth", false);
       state.store = result.store;
       render();
       toast("已匯入目前 auth");
-      return;
+    } catch (error) {
+      const shouldImportMissingIdentity =
+        String(error?.message || error).includes("missing_account_identity") &&
+        (await askConfirm({
+          title: "帳號資訊不完整",
+          message: "這份 auth 沒有可辨識的帳號資訊，仍要匯入嗎？",
+          confirmText: "仍要匯入",
+        }));
+      if (shouldImportMissingIdentity) {
+        const result = await apiCall("import_current_auth", true);
+        state.store = result.store;
+        render();
+        toast("已匯入目前 auth");
+        return;
+      }
+      throw error;
     }
-    throw error;
-  }
-}));
+  })
+);
 
-$("quickLoginBtn").addEventListener("click", () => guarded("登入 Codex", async () => {
-  toast("正在啟動 codex login，請依視窗提示完成登入");
-  const login = await apiCall("start_codex_login");
-  if (login.status !== "success") throw new Error(login.message || login.status);
-  const result = await apiCall("add_account_json", login.authJson, null, true);
-  await apiCall("import_current_auth", true);
-  state.store = result.store;
-  await reload();
-  toast("Codex 登入完成");
-}));
+$("quickLoginBtn").addEventListener("click", () =>
+  guarded("新增並登入帳號", async () => {
+    toast("正在啟動 codex login，請依提示完成登入");
+    const login = await apiCall("start_codex_login");
+    if (login.status !== "success") throw new Error(login.message || login.status);
+    const result = await apiCall("add_account_json", login.authJson, null, true);
+    await apiCall("import_current_auth", true);
+    state.store = result.store;
+    await reload();
+    toast("帳號登入完成");
+  })
+);
 
-$("backupImportBtn").addEventListener("click", () => guarded("匯入備份", async () => {
-  const result = await apiCall("choose_backup_import_file");
-  if (!result) return;
-  state.store = result.store;
-  render();
-  toast(`已匯入 ${result.importedCount} 個帳號`);
-}));
+$("backupImportBtn").addEventListener("click", () =>
+  guarded("從備份匯入帳號", async () => {
+    const result = await apiCall("choose_backup_import_file");
+    if (!result) return;
+    state.store = result.store;
+    render();
+    toast(`已匯入 ${result.importedCount} 個帳號`);
+  })
+);
 
-$("backupExportBtn").addEventListener("click", () => guarded("匯出備份", async () => {
-  const result = await apiCall("export_backup");
-  if (result) toast(`備份已匯出：${result.path}`);
-}));
+$("backupExportBtn").addEventListener("click", () =>
+  guarded("匯出帳號備份", async () => {
+    const result = await apiCall("export_backup");
+    if (result) toast(`備份已匯出：${result.path}`);
+  })
+);
 
-$("refreshAllBtn").addEventListener("click", () => guarded("更新全部", async () => {
-  const result = await apiCall("refresh_all_usage");
-  state.store = result.store;
-  render();
-  toast(`更新完成：成功 ${result.updated}，未更新 ${result.missing}`);
-}));
+$("refreshAllBtn").addEventListener("click", () =>
+  guarded("更新全部用量", async () => {
+    const result = await apiCall("refresh_all_usage");
+    state.store = result.store;
+    render();
+    toast(`更新完成：成功 ${result.updated}，未更新 ${result.missing}`);
+  })
+);
 
-$("restartBtn").addEventListener("click", () => guarded("重新啟動 Codex", async () => {
-  const result = await apiCall("restart_codex_processes");
-  toast(result.appRestarted ? "已重新啟動 Codex" : "沒有找到可重新啟動的 Codex 程式");
-}));
+$("restartBtn").addEventListener("click", () =>
+  guarded("重新啟動 Codex", async () => {
+    const result = await apiCall("restart_codex_processes");
+    toast(result.appRestarted ? "已重新啟動 Codex" : "沒有找到可重新啟動的 Codex 程式");
+  })
+);
 
 $("accounts").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-action]");
@@ -461,11 +498,11 @@ $("accounts").addEventListener("click", (event) => {
       const restart =
         !!state.store.config?.autoRestartCodexOnSwitch &&
         (state.store.config?.skipSwitchRestartConfirm ||
-          await askConfirm({
+          (await askConfirm({
             title: "重新啟動 Codex",
             message: "切換帳號後要重新啟動 Codex 嗎？",
             confirmText: "重新啟動並切換",
-          }));
+          })));
       const result = await apiCall("switch_account", id, restart);
       state.store = result.store;
       render();
@@ -479,12 +516,12 @@ $("accounts").addEventListener("click", (event) => {
     }
     if (
       action === "delete" &&
-      await askConfirm({
+      (await askConfirm({
         title: "刪除帳號",
         message: "確定要刪除這個帳號嗎？此操作會移除本機保存的 auth 備份。",
         confirmText: "刪除",
         danger: true,
-      })
+      }))
     ) {
       state.store = await apiCall("remove_account", id);
       render();
@@ -493,7 +530,12 @@ $("accounts").addEventListener("click", (event) => {
   });
 });
 
-for (const [id, key] of [["planFilter", "plan"], ["expiryFilter", "expiry"], ["hourlyFilter", "hourly"], ["weeklyFilter", "weekly"]]) {
+for (const [id, key] of [
+  ["planFilter", "plan"],
+  ["expiryFilter", "expiry"],
+  ["hourlyFilter", "hourly"],
+  ["weeklyFilter", "weekly"],
+]) {
   $(id).addEventListener("change", (event) => {
     state.filters[key] = event.target.value;
     render();
