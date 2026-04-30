@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Codex Keyring</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div>
+          <div class="brand-row">
+            <h1 id="appTitle">Codex Keyring</h1>
+            <span id="accountSummary" class="account-summary">目前顯示 0 個帳號</span>
+          </div>
+          <p id="subtitle">管理多個 Codex 登入帳號</p>
+        </div>
+      </header>
+
+      <div class="workspace">
+        <aside class="nav-panel">
+          <div class="nav-group">
+            <span class="nav-label">帳號</span>
+            <details class="nav-dropdown">
+              <summary class="nav-item primary-nav">登入 Codex</summary>
+              <div class="nav-dropdown__panel">
+                <button id="quickLoginBtn" class="nav-item" type="button">登入 Codex</button>
+                <button id="importCurrentBtn" class="nav-item" type="button">匯入目前 auth</button>
+                <button id="backupImportBtn" class="nav-item" type="button">匯入備份</button>
+                <button id="backupExportBtn" class="nav-item" type="button">匯出備份</button>
+              </div>
+            </details>
+            <button id="accountsNavBtn" class="nav-item active" type="button">帳號列表</button>
+          </div>
+
+          <div class="nav-group">
+            <span class="nav-label">操作</span>
+            <button id="refreshAllBtn" class="nav-item" type="button">更新全部用量</button>
+            <button id="restartBtn" class="nav-item" type="button">重新啟動 Codex</button>
+          </div>
+
+          <div class="nav-group">
+            <span class="nav-label">系統</span>
+            <button id="settingsNavBtn" class="nav-item" type="button">設定</button>
+          </div>
+        </aside>
+
+        <section id="accountsView" class="account-workspace view-panel">
+          <section class="content-controls">
+            <div class="filters">
+              <label>
+                方案
+                <select id="planFilter">
+                  <option value="all">全部</option>
+                  <option value="free">Free</option>
+                  <option value="plus">Plus</option>
+                  <option value="pro">Pro</option>
+                  <option value="team">Team</option>
+                </select>
+              </label>
+              <label>
+                到期
+                <select id="expiryFilter">
+                  <option value="all">全部</option>
+                  <option value="missing">未取得</option>
+                  <option value="expired">已到期</option>
+                  <option value="within-24h">24 小時內</option>
+                  <option value="within-7d">7 天內</option>
+                  <option value="within-30d">30 天內</option>
+                  <option value="active">30 天以上</option>
+                </select>
+              </label>
+              <label>
+                5h 用量
+                <select id="hourlyFilter">
+                  <option value="all">全部</option>
+                  <option value="0-33">0-33%</option>
+                  <option value="33-66">33-66%</option>
+                  <option value="66-100">66-100%</option>
+                </select>
+              </label>
+              <label>
+                每週用量
+                <select id="weeklyFilter">
+                  <option value="all">全部</option>
+                  <option value="0-33">0-33%</option>
+                  <option value="33-66">33-66%</option>
+                  <option value="66-100">66-100%</option>
+                </select>
+              </label>
+              <button id="clearFiltersBtn">清除篩選</button>
+            </div>
+          </section>
+
+          <main id="accounts" class="accounts"></main>
+          <div id="empty" class="empty">尚未加入帳號。可以先登入 Codex、匯入目前 auth，或匯入備份。</div>
+        </section>
+
+        <section id="settingsView" class="settings-view view-panel" hidden>
+          <div class="settings-card">
+            <div>
+              <h2>設定</h2>
+              <p class="settings-subtitle">調整 Codex CLI、帳號切換和本機資料位置。</p>
+            </div>
+
+            <section class="settings-section">
+              <h3>一般</h3>
+              <div class="settings-grid">
+                <label>
+                  Codex CLI 路徑
+                  <input id="codexPathInput" type="text" />
+                </label>
+                <label>
+                  自動更新間隔（分鐘，0 為關閉）
+                  <input id="refreshIntervalInput" type="number" min="0" step="1" />
+                </label>
+                <label>
+                  關閉視窗時
+                  <select id="closeBehaviorInput">
+                    <option value="ask">每次詢問</option>
+                    <option value="exit">直接結束</option>
+                    <option value="tray">最小化到系統匣</option>
+                  </select>
+                </label>
+                <label>
+                  主題
+                  <button id="themeToggle" type="button">切換深色/淺色</button>
+                </label>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h3>帳號切換</h3>
+              <div class="settings-grid">
+                <label class="check">
+                  <input id="autoRestartInput" type="checkbox" />
+                  切換帳號後自動重新啟動 Codex
+                </label>
+                <label class="check">
+                  <input id="skipRestartConfirmInput" type="checkbox" />
+                  自動重新啟動時略過確認
+                </label>
+              </div>
+            </section>
+
+            <section class="settings-section">
+              <h3>本機資料</h3>
+              <div class="storage-list">
+                <label>
+                  設定檔
+                  <div class="path-row">
+                    <input id="accountsFilePath" type="text" readonly />
+                    <button id="openAccountsFolderBtn" type="button">開啟資料夾</button>
+                  </div>
+                </label>
+                <label>
+                  帳號 auth 備份
+                  <div class="path-row">
+                    <input id="authStorePath" type="text" readonly />
+                    <button id="openAuthFolderBtn" type="button">開啟資料夾</button>
+                  </div>
+                </label>
+                <label>
+                  目前 Codex auth
+                  <div class="path-row">
+                    <input id="currentAuthPath" type="text" readonly />
+                    <button id="openCurrentAuthFolderBtn" type="button">開啟資料夾</button>
+                  </div>
+                </label>
+              </div>
+            </section>
+
+            <div class="settings-actions">
+              <button id="saveSettingsBtn" class="primary" type="button">儲存設定</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <footer>
+        <span>© 2026 Codex Keyring. All rights reserved.</span>
+      </footer>
+    </div>
+
+    <dialog id="confirmDialog">
+      <form method="dialog" class="dialog-body confirm-body">
+        <div>
+          <h2 id="confirmTitle">確認操作</h2>
+          <p id="confirmMessage" class="confirm-message"></p>
+        </div>
+        <div class="dialog-actions">
+          <button id="confirmCancelBtn" value="cancel" type="button">取消</button>
+          <button id="confirmOkBtn" class="primary" value="none" type="button">確認</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" hidden></div>
+    <script src="app.js"></script>
+  </body>
+</html>

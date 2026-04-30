@@ -1,0 +1,10 @@
+APP_NAME = "Codex Keyring"
+APP_VERSION = "0.2.0-py"
+APP_DIR_NAME = "codex-keyring"
+MANAGER_DIR_NAME = ".codex_keyring"
+LEGACY_APP_DIR_NAME = "codex-manager"
+LEGACY_MANAGER_DIR_NAME = ".codex_manager"
+BACKUP_FORMAT = "codex-keyring-backup"
+LEGACY_BACKUP_FORMAT = "codex-manager-backup"
+MIN_VALID_EPOCH_MS = 946684800000
+MAX_VALID_EPOCH_MS = 4102444800000
