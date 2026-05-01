@@ -145,6 +145,9 @@ class Api:
             "notifyOnWeeklyReset",
             "notifyFiveHourThreshold",
             "notifyWeeklyThreshold",
+            "notifyQuietHoursEnabled",
+            "notifyQuietHoursStart",
+            "notifyQuietHoursEnd",
         }
         updates = {key: value for key, value in (config or {}).items() if key in allowed}
         store["config"].update(updates)
@@ -155,7 +158,7 @@ class Api:
 
     def test_telegram_notification(self) -> dict[str, Any]:
         config = load_store().get("config") or {}
-        return send_telegram_message(config, "Codex Keyring: Telegram 通知測試成功")
+        return send_telegram_message(config, "Codex Keyring: Telegram 通知測試成功", force=True)
 
     def send_all_notification_samples(self) -> dict[str, Any]:
         store = load_store()
@@ -170,7 +173,7 @@ class Api:
             return {"ok": False, "message": "沒有可用帳號可產生通知樣本", "sent": 0, "results": []}
 
         messages = build_sample_notifications(account)
-        results = [send_telegram_message(config, message) for message in messages]
+        results = [send_telegram_message(config, message, force=True) for message in messages]
         sent = sum(1 for item in results if item.get("ok"))
         return {"ok": sent == len(results), "sent": sent, "total": len(results), "results": results}
 

@@ -286,6 +286,9 @@ function syncSettingsForm() {
   $("notifyOnWeeklyResetInput").checked = !!config.notifyOnWeeklyReset;
   $("notifyFiveHourThresholdInput").value = config.notifyFiveHourThreshold || "off";
   $("notifyWeeklyThresholdInput").value = config.notifyWeeklyThreshold || "off";
+  $("notifyQuietHoursEnabledInput").checked = !!config.notifyQuietHoursEnabled;
+  $("notifyQuietHoursStartInput").value = config.notifyQuietHoursStart || "23:00";
+  $("notifyQuietHoursEndInput").value = config.notifyQuietHoursEnd || "08:00";
   $("accountsFilePath").value = state.storage.accountsFile || "";
   $("authStorePath").value = state.storage.authStoreDir || "";
   $("currentAuthPath").value = state.storage.currentCodexAuth || "";
@@ -309,6 +312,9 @@ function settingsPayload() {
     notifyOnWeeklyReset: $("notifyOnWeeklyResetInput").checked,
     notifyFiveHourThreshold: $("notifyFiveHourThresholdInput").value,
     notifyWeeklyThreshold: $("notifyWeeklyThresholdInput").value,
+    notifyQuietHoursEnabled: $("notifyQuietHoursEnabledInput").checked,
+    notifyQuietHoursStart: $("notifyQuietHoursStartInput").value || "23:00",
+    notifyQuietHoursEnd: $("notifyQuietHoursEndInput").value || "08:00",
   };
 }
 

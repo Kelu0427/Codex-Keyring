@@ -11,11 +11,43 @@ def telegram_ready(config: dict[str, Any]) -> bool:
     return bool((config.get("telegramBotToken") or "").strip() and (config.get("telegramChatId") or "").strip())
 
 
-def send_telegram_message(config: dict[str, Any], text: str) -> dict[str, Any]:
+def _parse_hhmm(value: Any) -> tuple[int, int] | None:
+    raw = str(value or "").strip()
+    if len(raw) != 5 or raw[2] != ":":
+        return None
+    hh, mm = raw.split(":", 1)
+    if not (hh.isdigit() and mm.isdigit()):
+        return None
+    h, m = int(hh), int(mm)
+    if h < 0 or h > 23 or m < 0 or m > 59:
+        return None
+    return h, m
+
+
+def _is_quiet_hours(config: dict[str, Any], now: datetime | None = None) -> bool:
+    if not config.get("notifyQuietHoursEnabled"):
+        return False
+    start = _parse_hhmm(config.get("notifyQuietHoursStart"))
+    end = _parse_hhmm(config.get("notifyQuietHoursEnd"))
+    if not start or not end or start == end:
+        return False
+
+    current = now or datetime.now().astimezone()
+    now_minutes = current.hour * 60 + current.minute
+    start_minutes = start[0] * 60 + start[1]
+    end_minutes = end[0] * 60 + end[1]
+    if start_minutes < end_minutes:
+        return start_minutes <= now_minutes < end_minutes
+    return now_minutes >= start_minutes or now_minutes < end_minutes
+
+
+def send_telegram_message(config: dict[str, Any], text: str, force: bool = False) -> dict[str, Any]:
     token = (config.get("telegramBotToken") or "").strip()
     chat_id = (config.get("telegramChatId") or "").strip()
     if not token or not chat_id:
         return {"ok": False, "message": "Telegram token 或 chat id 未設定"}
+    if not force and _is_quiet_hours(config):
+        return {"ok": True, "suppressed": True, "message": "quiet hours"}
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     data = urllib.parse.urlencode(

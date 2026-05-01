@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 import webview
@@ -92,8 +93,46 @@ class AutoRefresher:
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
+        self._initialize_last_run_at()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
+
+    @staticmethod
+    def _parse_iso_ts(value: str | None) -> float | None:
+        if not value:
+            return None
+        raw = str(value).strip()
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+        except Exception:
+            return None
+
+    def _initialize_last_run_at(self) -> None:
+        """
+        Bootstrap scheduler from persisted account update times so app restart
+        does not always trigger an immediate auto refresh.
+        """
+        store = load_store()
+        config = store.get("config") or {}
+        interval_minutes = int(config.get("autoRefreshInterval") or 0)
+        if interval_minutes <= 0:
+            self._last_run_at = time.time()
+            return
+
+        latest_ts = 0.0
+        for account in store.get("accounts") or []:
+            usage = account.get("usageInfo") or {}
+            candidates = [
+                self._parse_iso_ts(account.get("updatedAt")),
+                self._parse_iso_ts(usage.get("lastUpdated")),
+            ]
+            for ts in candidates:
+                if ts and ts > latest_ts:
+                    latest_ts = ts
+
+        self._last_run_at = latest_ts if latest_ts > 0 else time.time()
 
     def _loop(self) -> None:
         while not self._stop.is_set():

@@ -170,6 +170,18 @@
                   開機時自動啟動（使用 Telegram 通知建議啟用）
                 </label>
                 <label class="check">
+                  <input id="notifyQuietHoursEnabledInput" type="checkbox" />
+                  啟用通知靜音時段
+                </label>
+                <label>
+                  靜音開始時間
+                  <input id="notifyQuietHoursStartInput" type="time" value="23:00" />
+                </label>
+                <label>
+                  靜音結束時間
+                  <input id="notifyQuietHoursEndInput" type="time" value="08:00" />
+                </label>
+                <label class="check">
                   <input id="notifyOnSwitchInput" type="checkbox" />
                   帳號切換時通知
                 </label>

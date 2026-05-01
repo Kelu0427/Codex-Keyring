@@ -27,6 +27,9 @@ def default_config() -> dict[str, Any]:
         "notifyOnWeeklyReset": False,
         "notifyFiveHourThreshold": "off",
         "notifyWeeklyThreshold": "off",
+        "notifyQuietHoursEnabled": False,
+        "notifyQuietHoursStart": "23:00",
+        "notifyQuietHoursEnd": "08:00",
     }
 
 
