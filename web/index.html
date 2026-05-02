@@ -28,7 +28,9 @@
                 <button id="quickLoginBtn" class="nav-item" type="button">新增並登入帳號</button>
                 <button id="importCurrentBtn" class="nav-item" type="button">匯入目前帳號 auth</button>
                 <button id="backupImportBtn" class="nav-item" type="button">從備份匯入帳號</button>
+                <button id="settingsImportBtn" class="nav-item" type="button">匯入設定檔</button>
                 <button id="backupExportBtn" class="nav-item" type="button">匯出帳號備份</button>
+                <button id="settingsExportBtn" class="nav-item" type="button">匯出設定檔</button>
               </div>
             </details>
             <button id="accountsNavBtn" class="nav-item active" type="button">帳號列表</button>
@@ -164,73 +166,79 @@
                   <input id="telegramChatIdInput" type="text" />
                 </label>
               </div>
-              <div class="notification-grid">
-                <label class="check">
-                  <input id="autoLaunchOnStartupInput" type="checkbox" />
-                  開機時自動啟動（使用 Telegram 通知建議啟用）
-                </label>
-                <label class="check">
-                  <input id="notifyQuietHoursEnabledInput" type="checkbox" />
-                  啟用通知靜音時段
-                </label>
-                <label>
-                  靜音開始時間
-                  <input id="notifyQuietHoursStartInput" type="time" value="23:00" />
-                </label>
-                <label>
-                  靜音結束時間
-                  <input id="notifyQuietHoursEndInput" type="time" value="08:00" />
-                </label>
-                <label class="check">
-                  <input id="notifyOnSwitchInput" type="checkbox" />
-                  帳號切換時通知
-                </label>
-                <label class="check">
-                  <input id="notifyOnRefreshInput" type="checkbox" />
-                  每次重整時通知
-                </label>
-                <label class="check">
-                  <input id="notifyOnExpirySoonInput" type="checkbox" />
-                  帳號訂閱快到期時通知
-                </label>
-                <label class="check">
-                  <input id="notifyOnFiveHourResetInput" type="checkbox" />
-                  5 小時用量刷新時通知
-                </label>
-                <label class="check">
-                  <input id="notifyOnWeeklyResetInput" type="checkbox" />
-                  每週用量刷新時通知
-                </label>
-                <label>
-                  5 小時剩餘低於
-                  <select id="notifyFiveHourThresholdInput">
-                    <option value="off">不通知</option>
-                    <option value="10">10%</option>
-                    <option value="20">20%</option>
-                    <option value="30">30%</option>
-                    <option value="40">40%</option>
-                    <option value="50">50%</option>
-                    <option value="60">60%</option>
-                    <option value="70">70%</option>
-                    <option value="80">80%</option>
-                    <option value="90">90%</option>
-                  </select>
-                </label>
-                <label>
-                  每週剩餘低於
-                  <select id="notifyWeeklyThresholdInput">
-                    <option value="off">不通知</option>
-                    <option value="10">10%</option>
-                    <option value="20">20%</option>
-                    <option value="30">30%</option>
-                    <option value="40">40%</option>
-                    <option value="50">50%</option>
-                    <option value="60">60%</option>
-                    <option value="70">70%</option>
-                    <option value="80">80%</option>
-                    <option value="90">90%</option>
-                  </select>
-                </label>
+              <div class="telegram-layout">
+                <div class="telegram-panel notification-options">
+                  <label class="check">
+                    <input id="autoLaunchOnStartupInput" type="checkbox" />
+                    開機時自動啟動（使用 Telegram 通知建議啟用）
+                  </label>
+                  <label class="check">
+                    <input id="notifyOnSwitchInput" type="checkbox" />
+                    帳號切換時通知
+                  </label>
+                  <label class="check">
+                    <input id="notifyOnRefreshInput" type="checkbox" />
+                    每次重整時通知
+                  </label>
+                  <label class="check">
+                    <input id="notifyOnExpirySoonInput" type="checkbox" />
+                    帳號訂閱快到期時通知
+                  </label>
+                  <label class="check">
+                    <input id="notifyOnFiveHourResetInput" type="checkbox" />
+                    5 小時用量刷新時通知
+                  </label>
+                  <label class="check">
+                    <input id="notifyOnWeeklyResetInput" type="checkbox" />
+                    每週用量刷新時通知
+                  </label>
+                </div>
+                <div class="telegram-panel telegram-rules">
+                  <label class="check rule-switch">
+                    <input id="notifyQuietHoursEnabledInput" type="checkbox" />
+                    啟用通知靜音時段
+                  </label>
+                  <div class="compact-grid">
+                    <label>
+                      靜音開始時間
+                      <input id="notifyQuietHoursStartInput" type="time" value="23:00" />
+                    </label>
+                    <label>
+                      靜音結束時間
+                      <input id="notifyQuietHoursEndInput" type="time" value="08:00" />
+                    </label>
+                    <label>
+                      5 小時剩餘低於
+                      <select id="notifyFiveHourThresholdInput">
+                        <option value="off">不通知</option>
+                        <option value="10">10%</option>
+                        <option value="20">20%</option>
+                        <option value="30">30%</option>
+                        <option value="40">40%</option>
+                        <option value="50">50%</option>
+                        <option value="60">60%</option>
+                        <option value="70">70%</option>
+                        <option value="80">80%</option>
+                        <option value="90">90%</option>
+                      </select>
+                    </label>
+                    <label>
+                      每週剩餘低於
+                      <select id="notifyWeeklyThresholdInput">
+                        <option value="off">不通知</option>
+                        <option value="10">10%</option>
+                        <option value="20">20%</option>
+                        <option value="30">30%</option>
+                        <option value="40">40%</option>
+                        <option value="50">50%</option>
+                        <option value="60">60%</option>
+                        <option value="70">70%</option>
+                        <option value="80">80%</option>
+                        <option value="90">90%</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
               </div>
               <div class="inline-actions">
                 <button id="testTelegramBtn" type="button">測試通知</button>

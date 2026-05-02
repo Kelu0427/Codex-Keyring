@@ -394,13 +394,14 @@ $("checkUpdateBtn").addEventListener("click", () =>
     }
     const shouldUpdate = await askConfirm({
       title: "發現新版本",
-      message: `偵測到新版本，是否開啟下載頁面？\n目前：${status.currentVersion || "--"}\n最新：${status.latestVersion || "--"}`,
-      confirmText: "下載更新",
+      message: `偵測到新版本，是否在程式內下載並套用？\n目前：${status.currentVersion || "--"}\n最新：${status.latestVersion || "--"}`,
+      confirmText: "立即更新",
     });
     if (!shouldUpdate) return;
+    toast("正在下載更新，請稍候...");
     const result = await apiCall("apply_update");
     if (!result?.updated) throw new Error(result?.message || "更新失敗");
-    toast("已開啟更新下載頁面，請下載安裝新版後重啟程式");
+    toast(result.message || "更新已下載");
   })
 );
 
@@ -419,6 +420,31 @@ $("saveSettingsBtn").addEventListener("click", () =>
       return;
     }
     toast("設定已儲存");
+  })
+);
+
+$("settingsImportBtn").addEventListener("click", () =>
+  guarded("匯入設定檔", async () => {
+    const shouldImport = await askConfirm({
+      title: "匯入設定檔",
+      message: "匯入後會覆蓋目前設定，但不會變更帳號列表或 auth 備份。",
+      confirmText: "選擇檔案",
+    });
+    if (!shouldImport) return;
+    const result = await apiCall("choose_settings_import_file");
+    if (!result) return;
+    state.store = result.store;
+    syncSettingsForm();
+    render();
+    toast(`已匯入 ${result.importedCount} 個設定項目`);
+  })
+);
+
+$("settingsExportBtn").addEventListener("click", () =>
+  guarded("匯出設定檔", async () => {
+    state.store = await apiCall("update_config", settingsPayload());
+    const result = await apiCall("export_settings");
+    if (result) toast(`設定檔已匯出：${result.path}`);
   })
 );
 

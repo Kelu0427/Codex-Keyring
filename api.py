@@ -11,7 +11,7 @@ import webview
 
 from accounts import add_account_to_store, switch_to_account, sync_current_account
 from auth import read_codex_auth
-from constants import APP_NAME, APP_VERSION, BACKUP_FORMAT, LEGACY_BACKUP_FORMAT
+from constants import APP_NAME, APP_VERSION, BACKUP_FORMAT, LEGACY_BACKUP_FORMAT, SETTINGS_FORMAT
 from paths import accounts_store_path, app_data_dir, auth_store_dir, codex_auth_path, manager_dir
 from storage import delete_account_auth, load_account_auth, load_store, save_store
 from system_ops import (
@@ -126,7 +126,17 @@ class Api:
 
     def update_config(self, config: dict[str, Any]) -> dict[str, Any]:
         store = load_store()
-        allowed = {
+        allowed = self._config_keys()
+        updates = {key: value for key, value in (config or {}).items() if key in allowed}
+        store["config"].update(updates)
+        if "autoLaunchOnStartup" in updates:
+            store["config"]["autoLaunchOnStartup"] = set_startup_enabled(bool(updates["autoLaunchOnStartup"]))
+        save_store(store)
+        return load_store()
+
+    @staticmethod
+    def _config_keys() -> set[str]:
+        return {
             "autoRefreshInterval",
             "codexPath",
             "closeBehavior",
@@ -149,12 +159,6 @@ class Api:
             "notifyQuietHoursStart",
             "notifyQuietHoursEnd",
         }
-        updates = {key: value for key, value in (config or {}).items() if key in allowed}
-        store["config"].update(updates)
-        if "autoLaunchOnStartup" in updates:
-            store["config"]["autoLaunchOnStartup"] = set_startup_enabled(bool(updates["autoLaunchOnStartup"]))
-        save_store(store)
-        return load_store()
 
     def test_telegram_notification(self) -> dict[str, Any]:
         config = load_store().get("config") or {}
@@ -272,6 +276,39 @@ class Api:
             ],
         }
         output_path.write_text(json.dumps(backup, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"path": str(output_path)}
+
+    def choose_settings_import_file(self) -> dict[str, Any] | None:
+        selected = self.choose_import_file()
+        if not selected:
+            return None
+        payload = json.loads(selected["content"])
+        if payload.get("format") != SETTINGS_FORMAT or not isinstance(payload.get("config"), dict):
+            raise ValueError(f"不是有效的 {APP_NAME} 設定檔")
+        config = {key: value for key, value in payload["config"].items() if key in self._config_keys()}
+        if not config:
+            raise ValueError("設定檔沒有可匯入的設定")
+        store = self.update_config(config)
+        return {"importedCount": len(config), "store": store}
+
+    def export_settings(self) -> dict[str, Any] | None:
+        path = webview.windows[0].create_file_dialog(
+            webview.FileDialog.SAVE,
+            save_filename=f"codex-keyring-settings-{datetime.now().date().isoformat()}.json",
+            file_types=("JSON Files (*.json)",),
+        )
+        if not path:
+            return None
+        output_path = Path(path[0] if isinstance(path, (list, tuple)) else path)
+        store = load_store()
+        settings = {
+            "format": SETTINGS_FORMAT,
+            "version": "1.0.0",
+            "appVersion": APP_VERSION,
+            "exportedAt": now_iso(),
+            "config": {key: store.get("config", {}).get(key) for key in sorted(self._config_keys())},
+        }
+        output_path.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
         return {"path": str(output_path)}
 
     def start_codex_login(self) -> dict[str, Any]:

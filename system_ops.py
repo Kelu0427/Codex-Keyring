@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 import urllib.request
-import webbrowser
 from pathlib import Path
 
 if sys.platform == "win32":
@@ -55,15 +57,17 @@ def _fetch_latest_release() -> dict[str, str]:
     release_url = str(payload.get("html_url") or "").strip()
     assets = payload.get("assets") or []
     download_url = ""
+    asset_name = ""
     if isinstance(assets, list) and assets:
         exe_asset = next((item for item in assets if str(item.get("name", "")).lower().endswith(".exe")), None)
-        chosen = exe_asset or assets[0]
-        if isinstance(chosen, dict):
-            download_url = str(chosen.get("browser_download_url") or "").strip()
+        if isinstance(exe_asset, dict):
+            download_url = str(exe_asset.get("browser_download_url") or "").strip()
+            asset_name = str(exe_asset.get("name") or "").strip()
     return {
         "tag": tag,
         "release_url": release_url,
-        "download_url": download_url or release_url,
+        "download_url": download_url,
+        "asset_name": asset_name,
     }
 
 
@@ -76,8 +80,74 @@ def _fetch_latest_tag() -> dict[str, str]:
     return {
         "tag": tag,
         "release_url": "https://github.com/Kelu0427/Codex-Keyring/releases",
-        "download_url": f"https://github.com/Kelu0427/Codex-Keyring/archive/refs/tags/{tag}.zip" if tag else "",
+        "download_url": "",
+        "asset_name": "",
     }
+
+
+def _download_update(url: str, asset_name: str) -> Path:
+    from paths import app_data_dir
+
+    updates_dir = app_data_dir() / "updates"
+    updates_dir.mkdir(parents=True, exist_ok=True)
+    filename = Path(asset_name or "Codex-Keyring.exe").name
+    if not filename.lower().endswith(".exe"):
+        filename = "Codex-Keyring.exe"
+    destination = updates_dir / filename
+    partial = destination.with_suffix(destination.suffix + ".download")
+
+    request = urllib.request.Request(url, headers={"User-Agent": "Codex-Keyring-Updater"})
+    with urllib.request.urlopen(request, timeout=120) as response, partial.open("wb") as output:
+        shutil.copyfileobj(response, output)
+    partial.replace(destination)
+    return destination
+
+
+def _quote_batch_value(value: Path) -> str:
+    return str(value).replace("%", "%%")
+
+
+def _launch_windows_self_updater(downloaded_exe: Path) -> Path:
+    from paths import app_data_dir
+
+    current_exe = Path(sys.executable).resolve()
+    updater_script = app_data_dir() / "updates" / "apply-update.cmd"
+    updater_script.parent.mkdir(parents=True, exist_ok=True)
+    script = f"""@echo off
+setlocal
+set "SOURCE={_quote_batch_value(downloaded_exe.resolve())}"
+set "TARGET={_quote_batch_value(current_exe)}"
+set /a tries=0
+timeout /t 1 /nobreak >nul
+:retry
+copy /y "%SOURCE%" "%TARGET%" >nul 2>nul
+if errorlevel 1 (
+  set /a tries+=1
+  if %tries% geq 30 exit /b 1
+  timeout /t 1 /nobreak >nul
+  goto retry
+)
+start "" "%TARGET%"
+del "%SOURCE%" >nul 2>nul
+del "%~f0" >nul 2>nul
+"""
+    updater_script.write_text(script, encoding="utf-8")
+    subprocess.Popen(
+        ["cmd", "/c", str(updater_script)],
+        cwd=str(updater_script.parent),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
+    return updater_script
+
+
+def _exit_soon(delay_seconds: float = 0.5) -> None:
+    def quit_process() -> None:
+        time.sleep(delay_seconds)
+        os._exit(0)
+
+    threading.Thread(target=quit_process, daemon=True).start()
 
 
 def normalize_codex_path(codex_path: str | None) -> str:
@@ -251,6 +321,7 @@ def check_for_updates() -> dict[str, object]:
         "latestVersion": latest_version,
         "downloadUrl": latest.get("download_url", ""),
         "releaseUrl": latest.get("release_url", ""),
+        "assetName": latest.get("asset_name", ""),
         "message": "有可用更新" if available else "目前未有新版本",
     }
 
@@ -262,15 +333,34 @@ def apply_update() -> dict[str, object]:
     if not status.get("available"):
         return {**status, "updated": False}
 
-    download_url = str(status.get("downloadUrl") or status.get("releaseUrl") or "").strip()
+    download_url = str(status.get("downloadUrl") or "").strip()
     if not download_url:
-        return {"supported": True, "available": True, "updated": False, "message": "找不到下載連結"}
+        return {"supported": True, "available": True, "updated": False, "message": "找不到可自動安裝的 EXE 更新檔"}
 
-    webbrowser.open(download_url)
+    try:
+        downloaded_exe = _download_update(download_url, str(status.get("assetName") or "Codex-Keyring.exe"))
+    except Exception as exc:
+        return {"supported": True, "available": True, "updated": False, "message": f"下載更新失敗：{exc}"}
+
+    if sys.platform == "win32" and getattr(sys, "frozen", False):
+        updater_script = _launch_windows_self_updater(downloaded_exe)
+        _exit_soon()
+        return {
+            "supported": True,
+            "available": True,
+            "updated": True,
+            "restartRequired": True,
+            "message": "更新已下載，程式即將重啟套用新版",
+            "downloadPath": str(downloaded_exe),
+            "updaterPath": str(updater_script),
+        }
+
     return {
         "supported": True,
         "available": True,
         "updated": True,
-        "message": "已開啟更新下載頁面",
+        "restartRequired": False,
+        "message": "開發模式已下載更新檔，未自動覆蓋目前程式",
         "downloadUrl": download_url,
+        "downloadPath": str(downloaded_exe),
     }
