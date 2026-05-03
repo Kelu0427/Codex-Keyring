@@ -115,14 +115,16 @@ function formatDate(value) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function expiryBucket(account) {
+function hasUsableUsage(account) {
   const usage = account.usageInfo || {};
-  const hasFreshUsage = usage.status === "ok" && (usage.fiveHourLimit || usage.weeklyLimit || usage.codeReviewLimit);
-  if (usage.status === "expired" && !hasFreshUsage) return "expired";
+  return usage.status === "ok" && (usage.fiveHourLimit || usage.weeklyLimit || usage.codeReviewLimit);
+}
+
+function expiryBucket(account) {
+  if (account.usageInfo?.status === "expired") return "expired";
   const date = parseDate(account.accountInfo?.subscriptionActiveUntil);
-  if (!date) return hasFreshUsage ? "active" : "missing";
+  if (!date) return "missing";
   const diff = date.getTime() - Date.now();
-  if (diff <= 0 && hasFreshUsage) return "active";
   if (diff <= 0) return "expired";
   if (diff <= 24 * 60 * 60 * 1000) return "within-24h";
   if (diff <= 7 * 24 * 60 * 60 * 1000) return "within-7d";
@@ -131,12 +133,9 @@ function expiryBucket(account) {
 }
 
 function expiryText(account) {
-  const usage = account.usageInfo || {};
-  const hasFreshUsage = usage.status === "ok" && (usage.fiveHourLimit || usage.weeklyLimit || usage.codeReviewLimit);
   const date = parseDate(account.accountInfo?.subscriptionActiveUntil);
-  if (!date) return { label: hasFreshUsage ? "可使用" : "未取得", percent: hasFreshUsage ? 100 : 0 };
+  if (!date) return { label: "未取得", percent: 0 };
   const diff = date.getTime() - Date.now();
-  if (diff <= 0 && hasFreshUsage) return { label: "可使用", percent: 100 };
   if (diff <= 0) return { label: "已到期", percent: 0 };
   const days = Math.ceil(diff / (24 * 60 * 60 * 1000));
   return {
@@ -208,6 +207,13 @@ function healthMeta(accountId) {
   return `<div class="meta health-meta">${health.issues.join("；")}</div>`;
 }
 
+function subscriptionRefreshHint(account) {
+  if (!hasUsableUsage(account)) return "";
+  const date = parseDate(account.accountInfo?.subscriptionActiveUntil);
+  if (date && date.getTime() > Date.now()) return "";
+  return `<div class="meta subscription-hint">若需更新訂閱到期日，請重新登入 Codex 帳號。</div>`;
+}
+
 function usageLine(label, limit) {
   const percent = typeof limit?.percentLeft === "number" ? limit.percentLeft : null;
   const reset = limit?.resetTime ? ` · ${limit.resetTime}` : "";
@@ -266,6 +272,7 @@ function renderAccounts() {
             <div class="usage-top"><span>訂閱到期 · ${formatDate(info.subscriptionActiveUntil)}</span><strong>${expiry.label}</strong></div>
             <div class="bar"><span class="${barClass(expiry.percent)}" style="width:${expiry.percent}%"></span></div>
           </div>
+          ${subscriptionRefreshHint(account)}
           ${usage.message ? `<div class="meta">${usage.message}</div>` : ""}
           ${usage.lastUpdated ? `<div class="meta">最後更新：${formatDate(usage.lastUpdated)}</div>` : ""}
           ${healthMeta(account.id)}

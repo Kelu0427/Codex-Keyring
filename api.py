@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import threading
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,23 +33,6 @@ from telegram_notify import (
 )
 from time_utils import now_iso, now_ms
 from usage import build_usage_info, get_codex_wham_usage
-
-
-def _is_past_datetime(value: Any) -> bool:
-    if not value:
-        return False
-    raw = str(value).strip()
-    if not raw:
-        return False
-    try:
-        if raw.isdigit():
-            timestamp = int(raw)
-            if timestamp < 1_000_000_000_000:
-                timestamp *= 1000
-            return timestamp < int(now_ms())
-        return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp() * 1000 < int(now_ms())
-    except Exception:
-        return False
 
 
 class Api:
@@ -274,8 +256,6 @@ class Api:
                         account_info = account.setdefault("accountInfo", {})
                         if result.get("plan_type"):
                             account_info["planType"] = result.get("plan_type")
-                        if _is_past_datetime(account_info.get("subscriptionActiveUntil")):
-                            account_info["subscriptionActiveUntil"] = None
                     account["updatedAt"] = now_iso()
                     messages = build_notification_messages(
                         account,
