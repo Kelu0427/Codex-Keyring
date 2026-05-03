@@ -137,12 +137,17 @@ def _quote_powershell_value(value: object) -> str:
     return str(value).replace("'", "''")
 
 
+def _quote_batch_value(value: Path) -> str:
+    return str(value).replace("%", "%%")
+
+
 def _launch_windows_self_updater(downloaded_exe: Path) -> Path:
     from paths import app_data_dir
 
     current_exe = Path(sys.executable).resolve()
     updates_dir = app_data_dir() / "updates"
     updater_script = updates_dir / "apply-update.ps1"
+    launcher_script = updates_dir / "launch-update.cmd"
     log_path = updates_dir / "apply-update.log"
     updater_script.parent.mkdir(parents=True, exist_ok=True)
     script = f"""$ErrorActionPreference = 'Stop'
@@ -190,19 +195,21 @@ exit 1
 """
     updater_script.write_text(script, encoding="utf-8")
     powershell = shutil.which("powershell.exe") or "powershell.exe"
-    creationflags = 0
-    if sys.platform == "win32":
-        creationflags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008
+    launcher = f"""@echo off
+setlocal
+start "" /min "{_quote_batch_value(Path(powershell))}" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{_quote_batch_value(updater_script)}"
+exit /b 0
+"""
+    launcher_script.write_text(launcher, encoding="utf-8")
     subprocess.Popen(
-        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(updater_script)],
+        ["cmd.exe", "/c", str(launcher_script)],
         cwd=str(updater_script.parent),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         stdin=subprocess.DEVNULL,
-        close_fds=True,
-        creationflags=creationflags,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
     )
-    return updater_script
+    return launcher_script
 
 
 def _exit_soon(delay_seconds: float = 0.5) -> None:
