@@ -8,6 +8,7 @@ const state = {
   autoRefreshTimer: null,
   syncTimer: null,
   lastStoreSnapshot: "",
+  accountHealth: {},
 };
 
 const $ = (id) => document.getElementById(id);
@@ -115,10 +116,13 @@ function formatDate(value) {
 }
 
 function expiryBucket(account) {
-  if (account.usageInfo?.status === "expired") return "expired";
+  const usage = account.usageInfo || {};
+  const hasFreshUsage = usage.status === "ok" && (usage.fiveHourLimit || usage.weeklyLimit || usage.codeReviewLimit);
+  if (usage.status === "expired" && !hasFreshUsage) return "expired";
   const date = parseDate(account.accountInfo?.subscriptionActiveUntil);
-  if (!date) return "missing";
+  if (!date) return hasFreshUsage ? "active" : "missing";
   const diff = date.getTime() - Date.now();
+  if (diff <= 0 && hasFreshUsage) return "active";
   if (diff <= 0) return "expired";
   if (diff <= 24 * 60 * 60 * 1000) return "within-24h";
   if (diff <= 7 * 24 * 60 * 60 * 1000) return "within-7d";
@@ -127,9 +131,12 @@ function expiryBucket(account) {
 }
 
 function expiryText(account) {
+  const usage = account.usageInfo || {};
+  const hasFreshUsage = usage.status === "ok" && (usage.fiveHourLimit || usage.weeklyLimit || usage.codeReviewLimit);
   const date = parseDate(account.accountInfo?.subscriptionActiveUntil);
-  if (!date) return { label: "未取得", percent: 0 };
+  if (!date) return { label: hasFreshUsage ? "可使用" : "未取得", percent: hasFreshUsage ? 100 : 0 };
   const diff = date.getTime() - Date.now();
+  if (diff <= 0 && hasFreshUsage) return { label: "可使用", percent: 100 };
   if (diff <= 0) return { label: "已到期", percent: 0 };
   const days = Math.ceil(diff / (24 * 60 * 60 * 1000));
   return {
@@ -164,11 +171,49 @@ function barClass(percent) {
   return "";
 }
 
+function limitLevel(limit) {
+  const percent = typeof limit?.percentLeft === "number" ? limit.percentLeft : null;
+  if (percent === null) return "";
+  if (percent <= 20) return "danger";
+  if (percent <= 45) return "warning";
+  return "";
+}
+
+function lowUsageTags(usage) {
+  return [
+    ["5h 低用量", usage.fiveHourLimit],
+    ["每週低用量", usage.weeklyLimit],
+    ["Review 低用量", usage.codeReviewLimit],
+  ]
+    .map(([label, limit]) => {
+      const level = limitLevel(limit);
+      if (!level) return "";
+      const className = level === "danger" ? "danger-tag" : "warning-tag";
+      return `<span class="status-tag ${className}">${label}</span>`;
+    })
+    .join("");
+}
+
+function healthTag(accountId) {
+  const health = state.accountHealth[accountId];
+  if (!health) return "";
+  if (health.level === "ok") return `<span class="status-tag healthy-tag">健康正常</span>`;
+  const className = health.level === "danger" ? "danger-tag" : "warning-tag";
+  return `<span class="status-tag ${className}">健康檢查：${health.level === "danger" ? "異常" : "注意"}</span>`;
+}
+
+function healthMeta(accountId) {
+  const health = state.accountHealth[accountId];
+  if (!health?.issues?.length) return "";
+  return `<div class="meta health-meta">${health.issues.join("；")}</div>`;
+}
+
 function usageLine(label, limit) {
   const percent = typeof limit?.percentLeft === "number" ? limit.percentLeft : null;
   const reset = limit?.resetTime ? ` · ${limit.resetTime}` : "";
+  const level = percent === null ? "" : limitLevel(limit);
   return `
-    <div class="usage-line">
+    <div class="usage-line ${level ? `usage-line--${level}` : ""}">
       <div class="usage-top"><span>${label}${reset}</span><strong>${percent === null ? "--" : `${percent}%`}</strong></div>
       <div class="bar"><span class="${percent === null ? "" : barClass(percent)}" style="width:${percent === null ? 0 : percent}%"></span></div>
     </div>
@@ -197,6 +242,8 @@ function renderAccounts() {
         account.isActive ? `<span class="status-tag active-tag">目前使用</span>` : "",
         bucket === "expired" ? `<span class="status-tag danger-tag">已到期</span>` : "",
         ["within-24h", "within-7d"].includes(bucket) ? `<span class="status-tag warning-tag">即將到期</span>` : "",
+        lowUsageTags(usage),
+        healthTag(account.id),
       ].join("");
       return `
       <article class="account-card ${account.isActive ? "active" : ""}" data-id="${account.id}">
@@ -221,6 +268,7 @@ function renderAccounts() {
           </div>
           ${usage.message ? `<div class="meta">${usage.message}</div>` : ""}
           ${usage.lastUpdated ? `<div class="meta">最後更新：${formatDate(usage.lastUpdated)}</div>` : ""}
+          ${healthMeta(account.id)}
         </div>
         <div class="card-actions">
           ${account.isActive ? "" : `<button data-action="switch">切換</button>`}
@@ -289,6 +337,7 @@ function syncSettingsForm() {
   $("notifyQuietHoursEnabledInput").checked = !!config.notifyQuietHoursEnabled;
   $("notifyQuietHoursStartInput").value = config.notifyQuietHoursStart || "23:00";
   $("notifyQuietHoursEndInput").value = config.notifyQuietHoursEnd || "08:00";
+  $("telegramTemplateInput").value = config.telegramTemplate || "standard";
   $("accountsFilePath").value = state.storage.accountsFile || "";
   $("authStorePath").value = state.storage.authStoreDir || "";
   $("currentAuthPath").value = state.storage.currentCodexAuth || "";
@@ -315,6 +364,7 @@ function settingsPayload() {
     notifyQuietHoursEnabled: $("notifyQuietHoursEnabledInput").checked,
     notifyQuietHoursStart: $("notifyQuietHoursStartInput").value || "23:00",
     notifyQuietHoursEnd: $("notifyQuietHoursEndInput").value || "08:00",
+    telegramTemplate: $("telegramTemplateInput").value || "standard",
   };
 }
 
@@ -349,6 +399,49 @@ async function openStorageFolder(key) {
     const result = await apiCall("open_storage_folder", key);
     if (result?.path) toast(`已開啟：${result.path}`);
   });
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (!bytes) return "0 MB";
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function setUpdateProgressVisible(visible) {
+  $("updateProgress").hidden = !visible;
+}
+
+function renderUpdateProgress(progress) {
+  const percent = Math.max(0, Math.min(100, Number(progress.percent || 0)));
+  const total = Number(progress.totalBytes || 0);
+  const downloaded = Number(progress.downloadedBytes || 0);
+  $("updateProgressText").textContent = progress.message || "正在下載更新...";
+  $("updateProgressPercent").textContent = `${percent}%`;
+  $("updateProgressBar").style.width = `${percent}%`;
+  $("updateProgressBytes").textContent = total ? `${formatBytes(downloaded)} / ${formatBytes(total)}` : "";
+  setUpdateProgressVisible(true);
+}
+
+async function pollUpdateProgress() {
+  while (true) {
+    const progress = await apiCall("get_update_progress");
+    renderUpdateProgress(progress);
+    const total = Number(progress.totalBytes || 0);
+    const downloaded = Number(progress.downloadedBytes || 0);
+    const suffix = total ? `（${formatBytes(downloaded)} / ${formatBytes(total)}）` : "";
+    if (progress.phase === "downloading") {
+      toast(`下載更新 ${progress.percent || 0}%${suffix}`);
+    } else if (progress.message) {
+      toast(String(progress.message));
+    }
+    if (!progress.running) {
+      const result = progress.result || {};
+      setTimeout(() => setUpdateProgressVisible(false), 2200);
+      if (!result.updated) throw new Error(result.message || "更新失敗");
+      return result;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 700));
+  }
 }
 
 async function init() {
@@ -398,8 +491,9 @@ $("checkUpdateBtn").addEventListener("click", () =>
       confirmText: "立即更新",
     });
     if (!shouldUpdate) return;
-    toast("正在下載更新，請稍候...");
-    const result = await apiCall("apply_update");
+    const started = await apiCall("start_update_download");
+    if (started?.message) toast(started.message);
+    const result = await pollUpdateProgress();
     if (!result?.updated) throw new Error(result?.message || "更新失敗");
     toast(result.message || "更新已下載");
   })
@@ -499,7 +593,7 @@ $("importCurrentBtn").addEventListener("click", () =>
 );
 
 $("quickLoginBtn").addEventListener("click", () =>
-  guarded("新增並登入帳號", async () => {
+  guarded("登入 Codex 帳號", async () => {
     toast("正在啟動 codex login，請依提示完成登入");
     const login = await apiCall("start_codex_login");
     if (login.status !== "success") throw new Error(login.message || login.status);
@@ -534,6 +628,16 @@ $("refreshAllBtn").addEventListener("click", () =>
     state.store = result.store;
     render();
     toast(`更新完成：成功 ${result.updated}，未更新 ${result.missing}`);
+  })
+);
+
+$("healthCheckBtn").addEventListener("click", () =>
+  guarded("檢查帳號健康", async () => {
+    const result = await apiCall("check_account_health");
+    state.accountHealth = Object.fromEntries((result.results || []).map((item) => [item.id, item]));
+    render();
+    const attention = (result.results || []).filter((item) => item.level !== "ok").length;
+    toast(attention ? `健康檢查完成：${attention} 個帳號需要注意` : `健康檢查完成：${result.checked} 個帳號正常`);
   })
 );
 

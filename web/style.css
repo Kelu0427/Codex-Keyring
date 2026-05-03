@@ -389,6 +389,10 @@ label,
   font-size: 12px;
 }
 
+.health-meta {
+  color: var(--text);
+}
+
 .content-controls {
   display: flex;
   align-items: flex-end;
@@ -518,6 +522,11 @@ input {
   color: var(--danger);
 }
 
+.healthy-tag {
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+}
+
 .usage {
   display: grid;
   gap: 12px;
@@ -527,6 +536,16 @@ input {
 .usage-line {
   display: grid;
   gap: 6px;
+}
+
+.usage-line--warning .usage-top span,
+.usage-line--warning .usage-top strong {
+  color: var(--warning);
+}
+
+.usage-line--danger .usage-top span,
+.usage-line--danger .usage-top strong {
+  color: var(--danger);
 }
 
 .usage-top {
@@ -650,6 +669,50 @@ textarea {
   box-shadow: 0 12px 30px rgb(0 0 0 / 0.18);
 }
 
+.update-progress {
+  position: fixed;
+  right: 20px;
+  top: 82px;
+  z-index: 49;
+  width: min(360px, calc(100vw - 40px));
+  padding: 14px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.18);
+}
+
+.update-progress__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.update-progress__bar {
+  height: 8px;
+  margin-top: 10px;
+  background: var(--panel-soft);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.update-progress__bar > span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+
+.update-progress__bytes {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 footer {
   position: fixed;
   left: 0;
@@ -667,6 +730,32 @@ footer {
 .footer-version {
   color: var(--muted);
   font-size: 12px;
+}
+
+.footer-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.github-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.github-link:hover {
+  color: var(--accent);
+}
+
+.github-link svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+  flex: 0 0 auto;
 }
 
 @media (max-width: 980px) {
@@ -714,5 +803,9 @@ footer {
   footer {
     display: grid;
     gap: 3px;
+  }
+
+  .footer-links {
+    justify-content: space-between;
   }
 }

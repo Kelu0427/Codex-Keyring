@@ -10,18 +10,20 @@ from typing import Any
 import webview
 
 from accounts import add_account_to_store, switch_to_account, sync_current_account
-from auth import read_codex_auth
+from auth import identity_from_auth, read_codex_auth
 from constants import APP_NAME, APP_VERSION, BACKUP_FORMAT, LEGACY_BACKUP_FORMAT, SETTINGS_FORMAT
 from paths import accounts_store_path, app_data_dir, auth_store_dir, codex_auth_path, manager_dir
 from storage import delete_account_auth, load_account_auth, load_store, save_store
 from system_ops import (
     apply_update,
     check_for_updates,
+    get_update_progress,
     is_startup_enabled,
     open_folder,
     restart_codex_processes,
     run_codex_login,
     set_startup_enabled,
+    start_update_download,
 )
 from telegram_notify import (
     build_notification_messages,
@@ -32,6 +34,23 @@ from telegram_notify import (
 )
 from time_utils import now_iso, now_ms
 from usage import build_usage_info, get_codex_wham_usage
+
+
+def _is_past_datetime(value: Any) -> bool:
+    if not value:
+        return False
+    raw = str(value).strip()
+    if not raw:
+        return False
+    try:
+        if raw.isdigit():
+            timestamp = int(raw)
+            if timestamp < 1_000_000_000_000:
+                timestamp *= 1000
+            return timestamp < int(now_ms())
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp() * 1000 < int(now_ms())
+    except Exception:
+        return False
 
 
 class Api:
@@ -158,7 +177,59 @@ class Api:
             "notifyQuietHoursEnabled",
             "notifyQuietHoursStart",
             "notifyQuietHoursEnd",
+            "telegramTemplate",
         }
+
+    def check_account_health(self) -> dict[str, Any]:
+        store = load_store()
+        results = []
+        for account in store.get("accounts") or []:
+            account_id = account.get("id")
+            issues = []
+            level = "ok"
+            auth_config = None
+            try:
+                auth_config = load_account_auth(account_id)
+            except Exception as exc:
+                issues.append(f"auth 備份無法讀取：{exc}")
+                level = "danger"
+
+            if auth_config is not None:
+                tokens = auth_config.get("tokens") or {}
+                if not tokens.get("access_token"):
+                    issues.append("缺少 access token，需要重新登入")
+                    level = "danger"
+                identity = identity_from_auth(auth_config)
+                if not (identity.get("email") or identity.get("userId") or identity.get("accountId")):
+                    issues.append("auth 內沒有可辨識的帳號身分")
+                    if level != "danger":
+                        level = "warning"
+
+            usage_info = account.get("usageInfo") or {}
+            status = usage_info.get("status")
+            if status and status != "ok":
+                issues.append(f"用量狀態異常：{usage_info.get('message') or status}")
+                if status in ("missing_token", "stale_token", "forbidden"):
+                    level = "danger"
+                elif level != "danger":
+                    level = "warning"
+            if not usage_info.get("lastUpdated"):
+                issues.append("尚未更新過用量")
+                if level != "danger":
+                    level = "warning"
+
+            if not issues:
+                issues.append("帳號 auth 與本機用量資料看起來正常")
+
+            results.append(
+                {
+                    "id": account_id,
+                    "level": level,
+                    "issues": issues,
+                }
+            )
+
+        return {"checked": len(results), "results": results}
 
     def test_telegram_notification(self) -> dict[str, Any]:
         config = load_store().get("config") or {}
@@ -176,7 +247,7 @@ class Api:
         if not account:
             return {"ok": False, "message": "沒有可用帳號可產生通知樣本", "sent": 0, "results": []}
 
-        messages = build_sample_notifications(account)
+        messages = build_sample_notifications(account, config)
         results = [send_telegram_message(config, message, force=True) for message in messages]
         sent = sum(1 for item in results if item.get("ok"))
         return {"ok": sent == len(results), "sent": sent, "total": len(results), "results": results}
@@ -199,6 +270,12 @@ class Api:
                             "lastUpdated": now_iso(),
                         }
                     )
+                    if result["status"] == "ok":
+                        account_info = account.setdefault("accountInfo", {})
+                        if result.get("plan_type"):
+                            account_info["planType"] = result.get("plan_type")
+                        if _is_past_datetime(account_info.get("subscriptionActiveUntil")):
+                            account_info["subscriptionActiveUntil"] = None
                     account["updatedAt"] = now_iso()
                     messages = build_notification_messages(
                         account,
@@ -335,3 +412,9 @@ class Api:
 
     def apply_update(self) -> dict[str, object]:
         return apply_update()
+
+    def start_update_download(self) -> dict[str, object]:
+        return start_update_download()
+
+    def get_update_progress(self) -> dict[str, object]:
+        return get_update_progress()

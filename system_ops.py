@@ -10,6 +10,7 @@ import threading
 import time
 import urllib.request
 from pathlib import Path
+from typing import Callable
 
 if sys.platform == "win32":
     import winreg
@@ -17,6 +18,16 @@ if sys.platform == "win32":
 STARTUP_APP_NAME = "CodexKeyring"
 RELEASE_API_URL = "https://api.github.com/repos/Kelu0427/Codex-Keyring/releases/latest"
 TAGS_API_URL = "https://api.github.com/repos/Kelu0427/Codex-Keyring/tags"
+_UPDATE_PROGRESS_LOCK = threading.RLock()
+_UPDATE_PROGRESS: dict[str, object] = {
+    "running": False,
+    "phase": "idle",
+    "percent": 0,
+    "downloadedBytes": 0,
+    "totalBytes": 0,
+    "message": "",
+    "result": None,
+}
 
 
 def _repo_root() -> Path:
@@ -85,7 +96,17 @@ def _fetch_latest_tag() -> dict[str, str]:
     }
 
 
-def _download_update(url: str, asset_name: str) -> Path:
+def _set_update_progress(**updates: object) -> None:
+    with _UPDATE_PROGRESS_LOCK:
+        _UPDATE_PROGRESS.update(updates)
+
+
+def get_update_progress() -> dict[str, object]:
+    with _UPDATE_PROGRESS_LOCK:
+        return dict(_UPDATE_PROGRESS)
+
+
+def _download_update(url: str, asset_name: str, progress: Callable[[int, int], None] | None = None) -> Path:
     from paths import app_data_dir
 
     updates_dir = app_data_dir() / "updates"
@@ -98,7 +119,16 @@ def _download_update(url: str, asset_name: str) -> Path:
 
     request = urllib.request.Request(url, headers={"User-Agent": "Codex-Keyring-Updater"})
     with urllib.request.urlopen(request, timeout=120) as response, partial.open("wb") as output:
-        shutil.copyfileobj(response, output)
+        total = int(response.headers.get("Content-Length") or 0)
+        downloaded = 0
+        while True:
+            chunk = response.read(1024 * 256)
+            if not chunk:
+                break
+            output.write(chunk)
+            downloaded += len(chunk)
+            if progress:
+                progress(downloaded, total)
     partial.replace(destination)
     return destination
 
@@ -364,3 +394,80 @@ def apply_update() -> dict[str, object]:
         "downloadUrl": download_url,
         "downloadPath": str(downloaded_exe),
     }
+
+
+def start_update_download() -> dict[str, object]:
+    with _UPDATE_PROGRESS_LOCK:
+        if _UPDATE_PROGRESS.get("running"):
+            return dict(_UPDATE_PROGRESS)
+        _UPDATE_PROGRESS.update(
+            {
+                "running": True,
+                "phase": "checking",
+                "percent": 0,
+                "downloadedBytes": 0,
+                "totalBytes": 0,
+                "message": "正在檢查更新...",
+                "result": None,
+            }
+        )
+
+    def run() -> None:
+        try:
+            status = check_for_updates()
+            if not status.get("supported") or not status.get("available"):
+                result = {**status, "updated": False}
+                _set_update_progress(running=False, phase="done", percent=100, message=str(result.get("message") or "目前已是最新版本"), result=result)
+                return
+
+            download_url = str(status.get("downloadUrl") or "").strip()
+            if not download_url:
+                result = {"supported": True, "available": True, "updated": False, "message": "這個 release 沒有可下載的 EXE 更新檔"}
+                _set_update_progress(running=False, phase="error", message=result["message"], result=result)
+                return
+
+            def on_progress(downloaded: int, total: int) -> None:
+                percent = round(downloaded / total * 100) if total else 0
+                _set_update_progress(
+                    phase="downloading",
+                    percent=max(0, min(99, percent)),
+                    downloadedBytes=downloaded,
+                    totalBytes=total,
+                    message="正在下載更新...",
+                )
+
+            _set_update_progress(phase="downloading", message="正在下載更新...")
+            downloaded_exe = _download_update(download_url, str(status.get("assetName") or "Codex-Keyring.exe"), on_progress)
+
+            if sys.platform == "win32" and getattr(sys, "frozen", False):
+                _set_update_progress(phase="applying", percent=100, message="正在套用更新...")
+                updater_script = _launch_windows_self_updater(downloaded_exe)
+                result = {
+                    "supported": True,
+                    "available": True,
+                    "updated": True,
+                    "restartRequired": True,
+                    "message": "更新已下載，程式將自動重啟並套用新版",
+                    "downloadPath": str(downloaded_exe),
+                    "updaterPath": str(updater_script),
+                }
+                _set_update_progress(running=False, phase="done", percent=100, message=result["message"], result=result)
+                _exit_soon()
+                return
+
+            result = {
+                "supported": True,
+                "available": True,
+                "updated": True,
+                "restartRequired": False,
+                "message": "更新檔已下載，請以打包版執行時套用更新",
+                "downloadUrl": download_url,
+                "downloadPath": str(downloaded_exe),
+            }
+            _set_update_progress(running=False, phase="done", percent=100, message=result["message"], result=result)
+        except Exception as exc:
+            result = {"supported": True, "available": True, "updated": False, "message": f"下載更新失敗：{exc}"}
+            _set_update_progress(running=False, phase="error", message=result["message"], result=result)
+
+    threading.Thread(target=run, daemon=True).start()
+    return get_update_progress()

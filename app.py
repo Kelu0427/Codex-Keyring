@@ -21,9 +21,10 @@ except Exception:  # pragma: no cover - optional runtime dependency
 
 
 class TrayController:
-    def __init__(self, window: webview.Window, root: Path) -> None:
+    def __init__(self, window: webview.Window, root: Path, api: Api) -> None:
         self.window = window
         self.root = root
+        self.api = api
         self.icon = None
         self.allow_close = False
 
@@ -48,6 +49,41 @@ class TrayController:
             self.icon = None
         self.window.destroy()
 
+    @staticmethod
+    def _account_label(account: dict) -> str:
+        info = account.get("accountInfo") or {}
+        return account.get("alias") or info.get("email") or account.get("id") or "Unknown"
+
+    def _switch_account_from_tray(self, account_id: str):
+        config = load_store().get("config") or {}
+        restart = bool(config.get("autoRestartCodexOnSwitch"))
+        self.api.switch_account(account_id, restart)
+        if self.icon:
+            self.icon.menu = self._build_menu()
+            self.icon.update_menu()
+
+    def _build_account_menu(self):
+        accounts = load_store().get("accounts") or []
+        if not accounts:
+            return pystray.Menu(pystray.MenuItem("尚未加入帳號", None, enabled=False))
+        return pystray.Menu(
+            *[
+                pystray.MenuItem(
+                    ("● " if account.get("isActive") else "") + self._account_label(account),
+                    (lambda icon, item, account_id=account["id"]: self._switch_account_from_tray(account_id)),
+                    enabled=not bool(account.get("isActive")),
+                )
+                for account in accounts
+            ]
+        )
+
+    def _build_menu(self):
+        return pystray.Menu(
+            pystray.MenuItem("顯示視窗", lambda icon, item: self._show_window()),
+            pystray.MenuItem("快速切換帳號", self._build_account_menu()),
+            pystray.MenuItem("結束", lambda icon, item: self._quit_app()),
+        )
+
     def _run_tray(self):
         if pystray is None:
             self.window.minimize()
@@ -58,11 +94,7 @@ class TrayController:
             self.window.minimize()
             return
 
-        menu = pystray.Menu(
-            pystray.MenuItem("開啟", lambda icon, item: self._show_window()),
-            pystray.MenuItem("結束", lambda icon, item: self._quit_app()),
-        )
-        self.icon = pystray.Icon("codex-keyring", image, APP_NAME, menu)
+        self.icon = pystray.Icon("codex-keyring", image, APP_NAME, self._build_menu())
         self.icon.run()
 
     def hide_to_tray(self):
@@ -167,7 +199,7 @@ def main() -> None:
         min_size=(940, 640),
         hidden=launch_to_tray,
     )
-    tray = TrayController(window, root)
+    tray = TrayController(window, root, api)
     refresher = AutoRefresher(api)
     refresher.start()
     window.events.closing += tray.on_closing

@@ -30,6 +30,7 @@ def default_config() -> dict[str, Any]:
         "notifyQuietHoursEnabled": False,
         "notifyQuietHoursStart": "23:00",
         "notifyQuietHoursEnd": "08:00",
+        "telegramTemplate": "standard",
     }
 
 

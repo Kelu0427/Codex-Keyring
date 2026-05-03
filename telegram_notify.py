@@ -45,7 +45,7 @@ def send_telegram_message(config: dict[str, Any], text: str, force: bool = False
     token = (config.get("telegramBotToken") or "").strip()
     chat_id = (config.get("telegramChatId") or "").strip()
     if not token or not chat_id:
-        return {"ok": False, "message": "Telegram token 或 chat id 未設定"}
+        return {"ok": False, "message": "Telegram token 或 chat id 尚未設定"}
     if not force and _is_quiet_hours(config):
         return {"ok": True, "suppressed": True, "message": "quiet hours"}
 
@@ -109,6 +109,11 @@ def reset_value(limit: dict[str, Any] | None) -> str | None:
     return str(value) if value else None
 
 
+def notification_template(config: dict[str, Any] | None) -> str:
+    value = str((config or {}).get("telegramTemplate") or "standard").strip().lower()
+    return value if value in {"standard", "compact", "detailed"} else "standard"
+
+
 def usage_indicator(percent: int | None) -> str:
     if percent is None:
         return "⚪"
@@ -124,10 +129,6 @@ def usage_indicator_for_limit(limit: dict[str, Any] | None) -> str:
 
 
 def _should_send_once(state: dict[str, Any], key: str, value: str, cooldown_seconds: int = 180) -> bool:
-    """
-    De-duplicate notifications for the same event value in a short window.
-    Works with legacy string state and new object state.
-    """
     now_ts = int(datetime.now(timezone.utc).timestamp())
     record = state.get(key)
 
@@ -145,47 +146,60 @@ def _should_send_once(state: dict[str, Any], key: str, value: str, cooldown_seco
 
 
 def _is_real_reset(previous_usage: dict[str, Any], usage: dict[str, Any], limit_key: str) -> bool:
-    """
-    Prevent false positives caused by reset-time text drift.
-    A real reset should show a clear percent rebound.
-    """
     old_percent = percent_value(previous_usage.get(limit_key))
     new_percent = percent_value(usage.get(limit_key))
     if old_percent is None or new_percent is None:
         return False
     if new_percent <= old_percent:
         return False
-    # Strong rebound (e.g. 0% -> 100%, 25% -> 90%)
     return (new_percent - old_percent) >= 25
 
 
 def build_usage_notification(
     account: dict[str, Any],
-    title: str = "Codex 使用量通知",
+    title: str = "Codex 用量通知",
     limit_key: str = "fiveHourLimit",
-    limit_name: str = "5 小時",
+    limit_name: str = "5h",
+    template: str = "standard",
 ) -> str:
     usage = account.get("usageInfo") or {}
     limit = usage.get(limit_key) or {}
     percent = percent_value(limit)
-    reset_time = reset_value(limit) or "未取得"
+    reset_time = reset_value(limit) or "未知"
     indicator = usage_indicator(percent)
     percent_text = f"{percent}%" if percent is not None else "--"
+    label = account_label(account)
 
-    return "\n".join(
-        [
-            title,
-            f"目前使用帳號：{account_label(account)}",
-            f"{indicator} 剩餘使用量：{percent_text}",
-            f"下次刷新時間：{reset_time} ({limit_name})",
-        ]
-    )
+    if template == "compact":
+        return f"{title}\n{label}｜{limit_name} {percent_text}｜重置 {reset_time}"
+
+    lines = [
+        title,
+        f"帳號：{label}",
+        f"{indicator} 剩餘用量：{percent_text}",
+        f"重置時間：{reset_time}（{limit_name}）",
+    ]
+    if template == "detailed":
+        status = usage.get("status")
+        if status:
+            lines.append(f"狀態：{status}")
+        if usage.get("lastUpdated"):
+            lines.append(f"最後更新：{usage['lastUpdated']}")
+    return "\n".join(lines)
 
 
-def usage_summary(account: dict[str, Any]) -> str:
+def usage_summary(account: dict[str, Any], template: str = "standard") -> str:
     usage = account.get("usageInfo") or {}
     info = account.get("accountInfo") or {}
-    lines = [f"帳號：{account_label(account)}"]
+    label = account_label(account)
+    if template == "compact":
+        five = percent_value(usage.get("fiveHourLimit"))
+        weekly = percent_value(usage.get("weeklyLimit"))
+        five_text = f"{five}%" if five is not None else "--"
+        weekly_text = f"{weekly}%" if weekly is not None else "--"
+        return f"{label}｜5h {five_text}｜每週 {weekly_text}"
+
+    lines = [f"帳號：{label}"]
     email = info.get("email")
     if email:
         lines.append(f"Email：{email}")
@@ -193,13 +207,13 @@ def usage_summary(account: dict[str, Any]) -> str:
     if plan:
         lines.append(f"方案：{plan}")
 
-    for label, key in (("5 小時", "fiveHourLimit"), ("每週", "weeklyLimit"), ("Code Review", "codeReviewLimit")):
+    for label_text, key in (("5h", "fiveHourLimit"), ("每週", "weeklyLimit"), ("Code Review", "codeReviewLimit")):
         limit = usage.get(key)
         percent = percent_value(limit)
         reset = reset_value(limit)
         if percent is not None:
             suffix = f"，重置 {reset}" if reset else ""
-            lines.append(f"{usage_indicator_for_limit(limit)} {label}剩餘：{percent}%{suffix}")
+            lines.append(f"{usage_indicator_for_limit(limit)} {label_text} 剩餘：{percent}%{suffix}")
 
     expiry = parse_expiry(info.get("subscriptionActiveUntil"))
     if expiry:
@@ -210,6 +224,8 @@ def usage_summary(account: dict[str, Any]) -> str:
         lines.append(f"狀態：{status}")
     if usage.get("message"):
         lines.append(f"訊息：{usage['message']}")
+    if template == "detailed" and usage.get("lastUpdated"):
+        lines.append(f"最後更新：{usage['lastUpdated']}")
 
     return "\n".join(lines)
 
@@ -217,27 +233,29 @@ def usage_summary(account: dict[str, Any]) -> str:
 def build_switch_message(account: dict[str, Any], config: dict[str, Any]) -> str | None:
     if not telegram_ready(config) or not config.get("notifyOnSwitch"):
         return None
-    return "Codex Keyring: 已切換帳號\n" + usage_summary(account)
+    template = notification_template(config)
+    return "Codex Keyring: 已切換帳號\n" + usage_summary(account, template)
 
 
-def build_sample_notifications(account: dict[str, Any]) -> list[str]:
+def build_sample_notifications(account: dict[str, Any], config: dict[str, Any] | None = None) -> list[str]:
+    template = notification_template(config)
     info = account.get("accountInfo") or {}
     expiry = parse_expiry(info.get("subscriptionActiveUntil"))
-    expiry_text = expiry.astimezone().strftime("%Y-%m-%d %H:%M") if expiry else "未取得"
+    expiry_text = expiry.astimezone().strftime("%Y-%m-%d %H:%M") if expiry else "未知"
     return [
-        build_usage_notification(account, "Codex 使用量通知（重整）", "fiveHourLimit", "5 小時"),
-        build_usage_notification(account, "Codex 使用量通知（5 小時刷新）", "fiveHourLimit", "5 小時"),
-        build_usage_notification(account, "Codex 使用量通知（每週刷新）", "weeklyLimit", "每週"),
-        build_usage_notification(account, "Codex 使用量通知（5 小時門檻）", "fiveHourLimit", "5 小時"),
-        build_usage_notification(account, "Codex 使用量通知（每週門檻）", "weeklyLimit", "每週"),
+        build_usage_notification(account, "Codex 用量通知：手動更新", "fiveHourLimit", "5h", template),
+        build_usage_notification(account, "Codex 用量通知：5h 門檻", "fiveHourLimit", "5h", template),
+        build_usage_notification(account, "Codex 用量通知：每週門檻", "weeklyLimit", "每週", template),
+        build_usage_notification(account, "Codex 用量通知：5h 已重置", "fiveHourLimit", "5h", template),
+        build_usage_notification(account, "Codex 用量通知：每週已重置", "weeklyLimit", "每週", template),
         "\n".join(
             [
-                "Codex 訂閱提醒通知",
-                f"目前使用帳號：{account_label(account)}",
+                "Codex 訂閱到期通知",
+                f"帳號：{account_label(account)}",
                 f"到期時間：{expiry_text}",
             ]
         ),
-        "Codex Keyring: 已切換帳號\n" + usage_summary(account),
+        "Codex Keyring: 已切換帳號\n" + usage_summary(account, template),
     ]
 
 
@@ -256,12 +274,13 @@ def build_notification_messages(
     info = account.get("accountInfo") or {}
     label = account_label(account)
     state = account.setdefault("notificationState", {})
+    template = notification_template(config)
 
     if config.get("notifyOnRefresh"):
         status = result.get("status")
         if status == "ok":
-            refresh_label = "自動刷新" if str(refresh_source).lower() == "auto" else "手動刷新"
-            messages.append(build_usage_notification(account, f"Codex 使用量通知（{refresh_label}）", "fiveHourLimit", "5 小時"))
+            refresh_label = "自動更新" if str(refresh_source).lower() == "auto" else "手動更新"
+            messages.append(build_usage_notification(account, f"Codex 用量通知：{refresh_label}", "fiveHourLimit", "5h", template))
         else:
             messages.append(f"Codex Keyring: {label} 用量更新失敗：{result.get('message') or status}")
 
@@ -276,8 +295,8 @@ def build_notification_messages(
                 messages.append(
                     "\n".join(
                         [
-                            "Codex 訂閱提醒通知",
-                            f"目前使用帳號：{label}",
+                            "Codex 訂閱到期通知",
+                            f"帳號：{label}",
                             f"訂閱將在 {days} 天內到期",
                             f"到期時間：{expiry.astimezone().strftime('%Y-%m-%d %H:%M')}",
                         ]
@@ -297,7 +316,7 @@ def build_notification_messages(
             and _is_real_reset(previous_usage, usage, "fiveHourLimit")
             and _should_send_once(state, "fiveHourReset", new_reset)
         ):
-            messages.append(build_usage_notification(account, "Codex 使用量通知（5 小時已刷新）", "fiveHourLimit", "5 小時"))
+            messages.append(build_usage_notification(account, "Codex 用量通知：5h 已重置", "fiveHourLimit", "5h", template))
 
     if config.get("notifyOnWeeklyReset"):
         old_reset = reset_value(previous_usage.get("weeklyLimit"))
@@ -309,13 +328,13 @@ def build_notification_messages(
             and _is_real_reset(previous_usage, usage, "weeklyLimit")
             and _should_send_once(state, "weeklyReset", new_reset)
         ):
-            messages.append(build_usage_notification(account, "Codex 使用量通知（每週已刷新）", "weeklyLimit", "每週"))
+            messages.append(build_usage_notification(account, "Codex 用量通知：每週已重置", "weeklyLimit", "每週", template))
 
     five_threshold = parse_threshold(config.get("notifyFiveHourThreshold"))
     five_percent = percent_value(usage.get("fiveHourLimit"))
     if five_threshold is not None and five_percent is not None:
         if five_percent <= five_threshold and state.get("fiveHourThreshold") != five_threshold:
-            messages.append(build_usage_notification(account, f"Codex 使用量通知（5 小時低於 {five_threshold}%）", "fiveHourLimit", "5 小時"))
+            messages.append(build_usage_notification(account, f"Codex 用量通知：5h 低於 {five_threshold}%", "fiveHourLimit", "5h", template))
             state["fiveHourThreshold"] = five_threshold
         elif five_percent > five_threshold:
             state.pop("fiveHourThreshold", None)
@@ -324,7 +343,7 @@ def build_notification_messages(
     weekly_percent = percent_value(usage.get("weeklyLimit"))
     if weekly_threshold is not None and weekly_percent is not None:
         if weekly_percent <= weekly_threshold and state.get("weeklyThreshold") != weekly_threshold:
-            messages.append(build_usage_notification(account, f"Codex 使用量通知（每週低於 {weekly_threshold}%）", "weeklyLimit", "每週"))
+            messages.append(build_usage_notification(account, f"Codex 用量通知：每週低於 {weekly_threshold}%", "weeklyLimit", "每週", template))
             state["weeklyThreshold"] = weekly_threshold
         elif weekly_percent > weekly_threshold:
             state.pop("weeklyThreshold", None)
