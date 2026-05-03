@@ -133,41 +133,74 @@ def _download_update(url: str, asset_name: str, progress: Callable[[int, int], N
     return destination
 
 
-def _quote_batch_value(value: Path) -> str:
-    return str(value).replace("%", "%%")
+def _quote_powershell_value(value: object) -> str:
+    return str(value).replace("'", "''")
 
 
 def _launch_windows_self_updater(downloaded_exe: Path) -> Path:
     from paths import app_data_dir
 
     current_exe = Path(sys.executable).resolve()
-    updater_script = app_data_dir() / "updates" / "apply-update.cmd"
+    updates_dir = app_data_dir() / "updates"
+    updater_script = updates_dir / "apply-update.ps1"
+    log_path = updates_dir / "apply-update.log"
     updater_script.parent.mkdir(parents=True, exist_ok=True)
-    script = f"""@echo off
-setlocal
-set "SOURCE={_quote_batch_value(downloaded_exe.resolve())}"
-set "TARGET={_quote_batch_value(current_exe)}"
-set /a tries=0
-timeout /t 1 /nobreak >nul
-:retry
-copy /y "%SOURCE%" "%TARGET%" >nul 2>nul
-if errorlevel 1 (
-  set /a tries+=1
-  if %tries% geq 30 exit /b 1
-  timeout /t 1 /nobreak >nul
-  goto retry
-)
-start "" "%TARGET%"
-del "%SOURCE%" >nul 2>nul
-del "%~f0" >nul 2>nul
+    script = f"""$ErrorActionPreference = 'Stop'
+$Source = '{_quote_powershell_value(downloaded_exe.resolve())}'
+$Target = '{_quote_powershell_value(current_exe)}'
+$LogPath = '{_quote_powershell_value(log_path)}'
+$ProcessIdToWait = {os.getpid()}
+
+function Write-UpdateLog([string]$Message) {{
+  $stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+  Add-Content -LiteralPath $LogPath -Encoding UTF8 -Value "[$stamp] $Message"
+}}
+
+Write-UpdateLog "Updater started. Source=$Source Target=$Target PID=$ProcessIdToWait"
+try {{
+  Wait-Process -Id $ProcessIdToWait -Timeout 90 -ErrorAction SilentlyContinue
+}} catch {{
+  Write-UpdateLog "Wait-Process warning: $($_.Exception.Message)"
+}}
+Start-Sleep -Milliseconds 800
+
+for ($i = 1; $i -le 60; $i++) {{
+  try {{
+    if (!(Test-Path -LiteralPath $Source)) {{
+      throw "Downloaded update file not found: $Source"
+    }}
+    Copy-Item -LiteralPath $Source -Destination $Target -Force
+    $sourceHash = (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash
+    $targetHash = (Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash
+    if ($sourceHash -ne $targetHash) {{
+      throw "Hash mismatch after copy"
+    }}
+    Write-UpdateLog "Update applied successfully."
+    Start-Process -FilePath $Target
+    Remove-Item -LiteralPath $Source -Force -ErrorAction SilentlyContinue
+    exit 0
+  }} catch {{
+    Write-UpdateLog "Attempt $i failed: $($_.Exception.Message)"
+    Start-Sleep -Seconds 1
+  }}
+}}
+
+Write-UpdateLog "Update failed after 60 attempts."
+exit 1
 """
     updater_script.write_text(script, encoding="utf-8")
+    powershell = shutil.which("powershell.exe") or "powershell.exe"
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008
     subprocess.Popen(
-        ["cmd", "/c", str(updater_script)],
+        [powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(updater_script)],
         cwd=str(updater_script.parent),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        stdin=subprocess.DEVNULL,
+        close_fds=True,
+        creationflags=creationflags,
     )
     return updater_script
 
