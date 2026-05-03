@@ -181,6 +181,8 @@ for ($i = 1; $i -le 60; $i++) {{
       throw "Hash mismatch after copy"
     }}
     Write-UpdateLog "Update applied successfully."
+    $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
+    Write-UpdateLog "Starting target with PYINSTALLER_RESET_ENVIRONMENT=1."
     Start-Process -FilePath $Target
     Remove-Item -LiteralPath $Source -Force -ErrorAction SilentlyContinue
     exit 0
