@@ -537,6 +537,73 @@ input {
   margin-top: 16px;
 }
 
+.account-reset-credits {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.account-reset-credits__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.account-reset-credits__head strong {
+  color: var(--accent);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.reset-credits-list {
+  display: grid;
+  gap: 7px;
+}
+
+.reset-credit-item,
+.reset-credit-empty {
+  padding: 8px 9px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.reset-credit-item {
+  display: grid;
+  gap: 7px;
+}
+
+.reset-credit-item__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.reset-credit-item__top strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.reset-credit-item__meta {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.reset-credit-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .usage-line {
   display: grid;
   gap: 6px;
@@ -794,6 +861,12 @@ footer {
   .content-controls,
   .filters {
     display: grid;
+  }
+
+  .account-reset-credits__head,
+  .reset-credit-item__top {
+    display: grid;
+    justify-items: start;
   }
 
   .settings-grid,

@@ -32,7 +32,7 @@ from telegram_notify import (
     telegram_ready,
 )
 from time_utils import now_iso, now_ms
-from usage import build_usage_info, get_codex_wham_usage
+from usage import build_usage_info, get_codex_reset_credits, get_codex_wham_usage
 
 
 class Api:
@@ -289,6 +289,32 @@ class Api:
                     missing += 1
                 time.sleep(0.25)
             return {"updated": updated, "missing": missing, "store": load_store()}
+
+    def refresh_reset_credits(self, account_id: str) -> dict[str, Any]:
+        result = get_codex_reset_credits(account_id)
+        store = load_store()
+        for account in store["accounts"]:
+            if account["id"] != account_id:
+                continue
+            usage_info = account.setdefault("usageInfo", {})
+            if result["status"] == "ok":
+                reset_credits = result.get("reset_credits") or {}
+                usage_info["resetCredits"] = {
+                    "availableCount": reset_credits.get("available_count"),
+                    "credits": reset_credits.get("credits") or [],
+                    "lastUpdated": result.get("last_updated"),
+                }
+            else:
+                usage_info["resetCredits"] = {
+                    "availableCount": None,
+                    "credits": [],
+                    "message": result.get("message") or result.get("status"),
+                    "lastUpdated": now_ms(),
+                }
+            account["updatedAt"] = now_iso()
+            break
+        save_store(store)
+        return {"result": result, "store": load_store()}
 
     def choose_import_file(self) -> dict[str, Any] | None:
         paths = webview.windows[0].create_file_dialog(

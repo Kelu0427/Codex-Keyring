@@ -1,5 +1,5 @@
 APP_NAME = "Codex Keyring"
-APP_VERSION = "0.1.4"
+APP_VERSION = "0.1.5"
 APP_DIR_NAME = "codex-keyring"
 MANAGER_DIR_NAME = ".codex_keyring"
 LEGACY_APP_DIR_NAME = "codex-manager"

@@ -4,11 +4,16 @@ import json
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from typing import Any
 
 from constants import APP_NAME, MAX_VALID_EPOCH_MS, MIN_VALID_EPOCH_MS
 from storage import load_account_auth
 from time_utils import format_reset_time, now_ms
+
+
+WHAM_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
+WHAM_RESET_CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
 
 
 def json_number(value: Any) -> float | None:
@@ -164,6 +169,96 @@ def request_json(url: str, token: str, timeout: int = 30) -> tuple[int, Any, str
         return error.code, parsed, body
 
 
+def utc_timestamp_to_local(value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    try:
+        if isinstance(value, (int, float)) or (isinstance(value, str) and value.strip().isdigit()):
+            timestamp = float(value)
+            if timestamp >= 1_000_000_000_000:
+                timestamp /= 1000
+            date = datetime.fromtimestamp(timestamp, timezone.utc)
+        else:
+            raw = str(value).strip()
+            date = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if date.tzinfo is None:
+                date = date.replace(tzinfo=timezone.utc)
+            else:
+                date = date.astimezone(timezone.utc)
+        return date.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return str(value)
+
+
+def _text_field(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    return None
+
+
+def parse_reset_credits(value: Any) -> dict[str, Any]:
+    available_count: int | None = None
+    entries: list[Any] = []
+    if isinstance(value, dict):
+        available_count = json_int(value.get("available_count", value.get("availableCount")))
+        for key in ("credits", "items", "data", "reset_credits", "resetCredits"):
+            raw_entries = value.get(key)
+            if isinstance(raw_entries, list):
+                entries = raw_entries
+                break
+    elif isinstance(value, list):
+        entries = value
+
+    credits = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        credits.append(
+            {
+                "status": _text_field(item.get("status")),
+                "title": _text_field(item.get("title", item.get("name"))),
+                "grantedAt": utc_timestamp_to_local(item.get("granted_at", item.get("grantedAt"))),
+                "expiresAt": utc_timestamp_to_local(item.get("expires_at", item.get("expiresAt"))),
+            }
+        )
+
+    if available_count is None:
+        available_count = sum(1 for item in credits if (item.get("status") or "").lower() in ("available", "active", "granted"))
+
+    return {"available_count": available_count, "credits": credits}
+
+
+def get_reset_credits_payload(token: str, fallback: Any = None) -> Any:
+    status, value, _body = request_json(WHAM_RESET_CREDITS_URL, token)
+    if 200 <= status < 300 and isinstance(value, (dict, list)):
+        return value
+    return fallback
+
+
+def get_codex_reset_credits(account_id: str) -> dict[str, Any]:
+    try:
+        auth_config = load_account_auth(account_id)
+    except Exception as exc:
+        return {"status": "missing_token", "message": str(exc), "reset_credits": None}
+
+    tokens = auth_config.get("tokens") or {}
+    token = tokens.get("access_token")
+    if not token:
+        return {"status": "missing_token", "message": "缺少 access token", "reset_credits": None}
+
+    status, value, _body = request_json(WHAM_RESET_CREDITS_URL, token)
+    if status == 401:
+        return {"status": "stale_token", "message": "憑證失效或沒有帶 Authorization header", "reset_credits": None}
+    if status == 403:
+        return {"status": "forbidden", "message": "沒有權限查詢重置額度", "reset_credits": None}
+    if status < 200 or status >= 300 or not isinstance(value, (dict, list)):
+        return {"status": "error", "message": f"重置額度請求失敗: {status}", "reset_credits": None}
+
+    return {"status": "ok", "message": None, "reset_credits": parse_reset_credits(value), "last_updated": now_ms()}
+
+
 def build_usage_info(result: dict[str, Any]) -> dict[str, Any]:
     usage = result.get("usage") or {}
     info: dict[str, Any] = {
@@ -186,6 +281,12 @@ def build_usage_info(result: dict[str, Any]) -> dict[str, Any]:
             "percentLeft": round(float(usage["code_review_percent_left"])),
             "resetTime": format_reset_time(int(usage["code_review_reset_time_ms"]), False),
         }
+    reset_credits = usage.get("reset_credits")
+    if isinstance(reset_credits, dict):
+        info["resetCredits"] = {
+            "availableCount": reset_credits.get("available_count"),
+            "credits": reset_credits.get("credits") or [],
+        }
     return info
 
 
@@ -200,7 +301,7 @@ def get_codex_wham_usage(account_id: str) -> dict[str, Any]:
     if not token:
         return {"status": "missing_token", "message": "缺少 access token", "plan_type": None, "usage": None}
 
-    status, value, _body = request_json("https://chatgpt.com/backend-api/wham/usage", token)
+    status, value, _body = request_json(WHAM_USAGE_URL, token)
     if status in (401, 403):
         state = "stale_token" if status == 401 else "forbidden"
         return {"status": state, "message": "token 已失效或沒有權限", "plan_type": None, "usage": None}
@@ -218,6 +319,7 @@ def get_codex_wham_usage(account_id: str) -> dict[str, Any]:
         return {"status": "no_usage", "message": str(exc), "plan_type": plan_type, "usage": None}
 
     code_review = parse_optional_rate_limit(value.get("code_review_rate_limit"))
+    reset_credits = get_reset_credits_payload(token, value.get("rate_limit_reset_credits"))
     usage = {
         "five_hour_percent_left": limits["five_hour"]["percent_left"] if limits.get("five_hour") else None,
         "five_hour_reset_time_ms": limits["five_hour"]["reset_time_ms"] if limits.get("five_hour") else None,
@@ -225,6 +327,7 @@ def get_codex_wham_usage(account_id: str) -> dict[str, Any]:
         "weekly_reset_time_ms": limits["weekly"]["reset_time_ms"] if limits.get("weekly") else None,
         "code_review_percent_left": code_review["percent_left"] if code_review else None,
         "code_review_reset_time_ms": code_review["reset_time_ms"] if code_review else None,
+        "reset_credits": parse_reset_credits(reset_credits) if reset_credits is not None else None,
         "last_updated": now_ms(),
         "source_file": None,
     }

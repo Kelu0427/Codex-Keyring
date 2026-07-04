@@ -58,6 +58,15 @@ function toast(message) {
   }, 2600);
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function setBusy(value) {
   state.busy = value;
   document.querySelectorAll("button").forEach((button) => {
@@ -78,7 +87,7 @@ function showView(view) {
 }
 
 async function apiCall(name, ...args) {
-  if (!window.pywebview?.api) throw new Error("pywebview API 尚未就緒");
+  if (!window.pywebview?.api) throw new Error("後端介面尚未就緒");
   return window.pywebview.api[name](...args);
 }
 
@@ -180,9 +189,9 @@ function limitLevel(limit) {
 
 function lowUsageTags(usage) {
   return [
-    ["5h 低用量", usage.fiveHourLimit],
+    ["5 小時低用量", usage.fiveHourLimit],
     ["每週低用量", usage.weeklyLimit],
-    ["Review 低用量", usage.codeReviewLimit],
+    ["審查低用量", usage.codeReviewLimit],
   ]
     .map(([label, limit]) => {
       const level = limitLevel(limit);
@@ -226,6 +235,79 @@ function usageLine(label, limit) {
   `;
 }
 
+function resetCreditStatusLabel(status) {
+  const value = String(status || "").toLowerCase();
+  return (
+    {
+      available: "可用",
+      active: "可用",
+      granted: "可用",
+      redeeming: "使用中",
+      redeemed: "已使用",
+      expired: "已到期",
+      unavailable: "不可用",
+    }[value] || status || "未知"
+  );
+}
+
+function resetCreditTitleLabel(title) {
+  const value = String(title || "").trim();
+  return (
+    {
+      "Full reset (Weekly + 5 hr)": "完整重置（每週 + 5 小時）",
+    }[value] || value || "未命名重置額度"
+  );
+}
+
+function resetCreditsBlock(resetCredits) {
+  const hasData = !!resetCredits;
+  const available = typeof resetCredits?.availableCount === "number" ? resetCredits.availableCount : "--";
+  const credits = Array.isArray(resetCredits?.credits) ? resetCredits.credits : [];
+  const message = resetCredits?.message;
+  const placeholderCount = credits.length ? 0 : Math.max(0, Math.min(Number(resetCredits?.availableCount || 0), 20));
+  const rows = credits.length
+    ? credits
+        .map(
+          (credit) => `
+            <div class="reset-credit-item">
+              <div class="reset-credit-item__top">
+                <strong>${escapeHtml(resetCreditTitleLabel(credit.title))}</strong>
+                <span class="pill">${escapeHtml(resetCreditStatusLabel(credit.status))}</span>
+              </div>
+              <div class="reset-credit-item__meta">
+                <span>獲得：${escapeHtml(credit.grantedAt || "未取得")}</span>
+                <span>到期：${escapeHtml(credit.expiresAt || "未取得")}</span>
+              </div>
+            </div>
+          `
+        )
+        .join("")
+    : placeholderCount
+      ? Array.from({ length: placeholderCount }, (_, index) => `
+          <div class="reset-credit-item">
+            <div class="reset-credit-item__top">
+              <strong>重置額度 ${index + 1}</strong>
+              <span class="pill">可用</span>
+            </div>
+            <div class="reset-credit-item__meta">
+              <span>獲得：未提供</span>
+              <span>到期：未提供</span>
+            </div>
+          </div>
+        `).join("")
+      : `<div class="reset-credit-empty">${message ? escapeHtml(message) : hasData ? "此帳號目前沒有可用重置額度。" : "正在讀取重置額度。"}</div>`;
+
+  return `
+    <div class="account-reset-credits">
+      <div class="account-reset-credits__head">
+        <span>重置額度</span>
+        <strong>${available}</strong>
+      </div>
+      <div class="reset-credits-list">${rows}</div>
+    </div>
+  `;
+}
+
 function renderSummary() {
   const total = (state.store.accounts || []).length;
   const visible = filteredAccounts().length;
@@ -265,13 +347,14 @@ function renderAccounts() {
         </div>
         ${accountTags ? `<div class="status-tags">${accountTags}</div>` : ""}
         <div class="usage">
-          ${usageLine("5h 用量", usage.fiveHourLimit)}
+          ${usageLine("5 小時用量", usage.fiveHourLimit)}
           ${usageLine("每週用量", usage.weeklyLimit)}
-          ${usageLine("Code Review", usage.codeReviewLimit)}
+          ${usageLine("程式碼審查", usage.codeReviewLimit)}
           <div class="usage-line">
             <div class="usage-top"><span>訂閱到期 · ${formatDate(info.subscriptionActiveUntil)}</span><strong>${expiry.label}</strong></div>
             <div class="bar"><span class="${barClass(expiry.percent)}" style="width:${expiry.percent}%"></span></div>
           </div>
+          ${resetCreditsBlock(usage.resetCredits)}
           ${subscriptionRefreshHint(account)}
           ${usage.message ? `<div class="meta">${usage.message}</div>` : ""}
           ${usage.lastUpdated ? `<div class="meta">最後更新：${formatDate(usage.lastUpdated)}</div>` : ""}
@@ -301,6 +384,8 @@ function computeStoreSnapshot(store) {
     updatedAt: account.updatedAt || "",
     usageUpdated: account.usageInfo?.lastUpdated || "",
     usageStatus: account.usageInfo?.status || "",
+    resetCreditsUpdated: account.usageInfo?.resetCredits?.lastUpdated || "",
+    resetCreditsAvailable: account.usageInfo?.resetCredits?.availableCount ?? "",
   }));
   return JSON.stringify(accounts);
 }
@@ -388,6 +473,22 @@ async function reload() {
   state.store = store;
   state.lastStoreSnapshot = computeStoreSnapshot(store);
   render();
+  refreshMissingResetCredits();
+}
+
+async function refreshMissingResetCredits() {
+  const missing = (state.store.accounts || []).filter((account) => !account.usageInfo?.resetCredits);
+  for (const account of missing) {
+    if (state.busy) return;
+    try {
+      const result = await apiCall("refresh_reset_credits", account.id);
+      state.store = result.store;
+      state.lastStoreSnapshot = computeStoreSnapshot(state.store);
+      render();
+    } catch (_) {
+      // keep the card visible; manual usage refresh can retry later
+    }
+  }
 }
 
 async function guarded(label, fn) {
@@ -468,6 +569,7 @@ async function init() {
   showView("accounts");
   render();
   scheduleStoreSync();
+  refreshMissingResetCredits();
 }
 
 $("themeToggle").addEventListener("click", () =>
